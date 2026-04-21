@@ -1,0 +1,16 @@
+[project]
+name = "repo-task-runtime"
+version = "0.1.0"
+description = "A minimal Python runtime for real repo-task agent workflows."
+readme = "README.md"
+requires-python = ">=3.9"
+
+[project.optional-dependencies]
+api = [
+    "fastapi",
+    "httpx",
+    "uvicorn",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

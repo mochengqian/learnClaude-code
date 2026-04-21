@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Repo-Task Runtime Console</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body>
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Repo-Task Runtime / Workbench</p>
+        <h1>Minimal Control Console</h1>
+        <p class="subtitle">
+          Thin web console for session state, approvals, diff, and timeline.
+        </p>
+      </div>
+      <div class="hero-actions">
+        <button id="demo-setup-button" class="secondary">Create Demo Repo</button>
+        <button id="refresh-session-button" class="secondary">Refresh Session</button>
+      </div>
+    </header>
+
+    <section class="controls-grid">
+      <form id="session-form" class="card form-card">
+        <h2>Session</h2>
+        <label>
+          Repo Path
+          <input id="repo-path-input" name="repo_path" placeholder="/absolute/path/to/repo" required />
+        </label>
+        <label>
+          Task Input
+          <textarea id="task-input-textarea" name="task_input" rows="4" placeholder="Describe the repo task."></textarea>
+        </label>
+        <button type="submit">Create Session</button>
+      </form>
+
+      <form id="plan-form" class="card form-card">
+        <h2>Plan</h2>
+        <label>
+          Plan Markdown
+          <textarea id="plan-textarea" rows="7" placeholder="1. Inspect&#10;2. Fix&#10;3. Test"></textarea>
+        </label>
+        <div class="inline-actions">
+          <button type="button" id="agent-plan-button" class="secondary">Draft Plan With Model</button>
+          <button type="submit">Save Plan</button>
+          <button type="button" id="approve-plan-button" class="secondary">Approve Plan</button>
+        </div>
+      </form>
+
+      <form id="todos-form" class="card form-card">
+        <h2>Todos</h2>
+        <p class="helper">One item per line: <code>status | content | active form</code></p>
+        <textarea id="todos-textarea" rows="7" placeholder="in_progress | Inspect failing test | Inspect failing test&#10;pending | Fix slug join | Fix slug join&#10;pending | Run tests | Run tests"></textarea>
+        <button type="submit">Replace Todos</button>
+      </form>
+
+      <form id="tool-form" class="card form-card">
+        <h2>Tool Request</h2>
+        <label>
+          Tool Type
+          <select id="tool-type-select">
+            <option value="read_file">read_file</option>
+            <option value="write_file">write_file</option>
+            <option value="shell">shell</option>
+            <option value="run_test">run_test</option>
+          </select>
+        </label>
+        <label>
+          Relative Path
+          <input id="tool-relative-path-input" placeholder="demo_app/string_tools.py" />
+        </label>
+        <label>
+          File Content
+          <textarea id="tool-content-textarea" rows="6" placeholder="Only used for write_file"></textarea>
+        </label>
+        <label>
+          Command
+          <input id="tool-command-input" placeholder="python3 -m unittest discover -s tests -v" />
+        </label>
+        <label>
+          Agent Loop Max Steps
+          <input id="agent-loop-max-steps-input" type="number" min="1" max="8" value="3" />
+        </label>
+        <div class="inline-actions">
+          <button type="button" id="agent-step-button" class="secondary">Run Agent Step</button>
+          <button type="button" id="agent-loop-button" class="secondary">Run Agent Loop</button>
+          <button type="submit">Send Tool Request</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="status-bar">
+      <div>
+        <strong>Current Session:</strong>
+        <span id="current-session-id">none</span>
+      </div>
+      <div id="status-message">No session yet.</div>
+    </section>
+
+    <section class="panel-grid">
+      <article class="card panel">
+        <div class="panel-header">
+          <h2>Session Snapshot</h2>
+        </div>
+        <pre id="snapshot-panel">Create a session to begin.</pre>
+      </article>
+
+      <article class="card panel">
+        <div class="panel-header">
+          <h2>Approval Queue</h2>
+        </div>
+        <div id="approvals-panel" class="approvals-list">
+          <p class="muted">No pending approvals.</p>
+        </div>
+      </article>
+
+      <article class="card panel">
+        <div class="panel-header">
+          <h2>Latest Diff / Tool Result</h2>
+        </div>
+        <pre id="diff-panel">No diff yet.</pre>
+      </article>
+
+      <article class="card panel">
+        <div class="panel-header">
+          <h2>Event Timeline</h2>
+        </div>
+        <div id="timeline-panel" class="timeline-list">
+          <p class="muted">No events yet.</p>
+        </div>
+      </article>
+    </section>
+
+    <script src="/assets/app.js"></script>
+  </body>
+</html>

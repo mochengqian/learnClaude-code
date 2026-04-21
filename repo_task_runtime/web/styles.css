@@ -1,0 +1,247 @@
+:root {
+  color-scheme: light;
+  --bg: #f4efe7;
+  --surface: #fffaf2;
+  --surface-strong: #fffdf8;
+  --border: #d8c7b5;
+  --text: #231c16;
+  --muted: #6f6257;
+  --accent: #0d6b5c;
+  --accent-strong: #0a5448;
+  --warning: #8d5c00;
+  --shadow: 0 18px 40px rgba(44, 28, 17, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at top left, rgba(13, 107, 92, 0.11), transparent 28%),
+    radial-gradient(circle at top right, rgba(194, 120, 52, 0.12), transparent 24%),
+    linear-gradient(180deg, #f8f2e9 0%, var(--bg) 100%);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+.hero,
+.controls-grid,
+.status-bar,
+.panel-grid {
+  width: min(1380px, calc(100vw - 32px));
+  margin: 0 auto;
+}
+
+.hero {
+  padding: 32px 0 20px;
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: flex-end;
+}
+
+.eyebrow {
+  margin: 0 0 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 3.5rem);
+  line-height: 0.95;
+}
+
+.subtitle {
+  margin: 10px 0 0;
+  max-width: 64ch;
+  color: var(--muted);
+}
+
+.hero-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.controls-grid,
+.panel-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.controls-grid {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.panel-grid {
+  padding: 16px 0 28px;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.card {
+  background: color-mix(in srgb, var(--surface) 90%, white);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  box-shadow: var(--shadow);
+}
+
+.form-card,
+.panel {
+  padding: 18px;
+}
+
+.form-card h2,
+.panel h2 {
+  margin: 0 0 14px;
+  font-size: 1rem;
+}
+
+label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 14px;
+}
+
+input,
+textarea,
+select,
+button {
+  font: inherit;
+}
+
+input,
+textarea,
+select {
+  width: 100%;
+  margin-top: 6px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 11px 13px;
+  background: var(--surface-strong);
+  color: var(--text);
+}
+
+textarea {
+  resize: vertical;
+}
+
+button {
+  border: none;
+  border-radius: 999px;
+  padding: 11px 16px;
+  background: var(--accent);
+  color: #fffefb;
+  cursor: pointer;
+  font-weight: 700;
+  transition: transform 140ms ease, background 140ms ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+  background: var(--accent-strong);
+}
+
+button.secondary {
+  background: #e8dcca;
+  color: var(--text);
+}
+
+button.secondary:hover {
+  background: #dcc9af;
+}
+
+.inline-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.status-bar {
+  margin-top: 16px;
+  padding: 14px 18px;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  background: rgba(255, 250, 242, 0.8);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  backdrop-filter: blur(8px);
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+pre {
+  margin: 0;
+  padding: 14px;
+  border-radius: 16px;
+  background: #201914;
+  color: #fbf3e9;
+  overflow-x: auto;
+  min-height: 220px;
+  font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.approvals-list,
+.timeline-list {
+  display: grid;
+  gap: 12px;
+}
+
+.approval-card,
+.timeline-item {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.approval-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.muted,
+.helper {
+  color: var(--muted);
+}
+
+.helper {
+  margin: -6px 0 12px;
+  font-size: 0.92rem;
+}
+
+.warning {
+  color: var(--warning);
+}
+
+code {
+  font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+}
+
+@media (max-width: 820px) {
+  .hero {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .status-bar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
