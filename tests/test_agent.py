@@ -302,6 +302,100 @@ class AgentRunnerTest(unittest.TestCase):
             any("directory path for read_file" in payload.get("error", "") for payload in event_payloads)
         )
 
+    def test_run_next_step_retries_missing_repo_file_once(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        session.update_plan("1. Inspect\n2. Fix\n3. Test")
+        session.approve_plan()
+        self.seed_todos(session)
+        source_dir = session.repo_path / "demo_app"
+        source_dir.mkdir()
+        (source_dir / "number_tools.py").write_text(
+            "def clamp(value: int, lower: int, upper: int) -> int:\n    return value\n",
+            encoding="utf-8",
+        )
+        runner = AgentRunner(
+            FakeModelClient(
+                [
+                    (
+                        '{"summary":"Read the clamp helper.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{"tool_type":"read_file","relative_path":"clamp.py"}}'
+                    ),
+                    (
+                        '{"summary":"Read the number helper instead.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{"tool_type":"read_file","relative_path":"demo_app/number_tools.py"}}'
+                    ),
+                ]
+            )
+        )
+
+        outcome = runner.run_next_step(session)
+
+        self.assertEqual("request_tool", outcome.decision.action)
+        self.assertEqual("executed", outcome.tool_result.status)
+        self.assertEqual("read_file", outcome.tool_result.tool_name)
+        self.assertEqual("demo_app/number_tools.py", outcome.tool_result.data["relative_path"])
+        event_payloads = [
+            event.payload
+            for event in session.timeline
+            if event.event_type == "agent_step_output_invalid"
+        ]
+        self.assertTrue(
+            any("missing repo file for read_file" in payload.get("error", "") for payload in event_payloads)
+        )
+
+    def test_run_next_step_retries_missing_relative_path_once(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        session.update_plan("1. Inspect\n2. Fix\n3. Test")
+        session.approve_plan()
+        self.seed_todos(session)
+        source_dir = session.repo_path / "demo_app"
+        source_dir.mkdir()
+        (source_dir / "string_tools.py").write_text(
+            "def slugify_title(value: str) -> str:\n    return value\n",
+            encoding="utf-8",
+        )
+        runner = AgentRunner(
+            FakeModelClient(
+                [
+                    (
+                        '{"summary":"Read the implementation first.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{"tool_type":"read_file"}}'
+                    ),
+                    (
+                        '{"summary":"Read the slug helper.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{"tool_type":"read_file","relative_path":"demo_app/string_tools.py"}}'
+                    ),
+                ]
+            )
+        )
+
+        outcome = runner.run_next_step(session)
+
+        self.assertEqual("request_tool", outcome.decision.action)
+        self.assertEqual("executed", outcome.tool_result.status)
+        self.assertEqual("read_file", outcome.tool_result.tool_name)
+        self.assertEqual(
+            "demo_app/string_tools.py",
+            outcome.tool_result.data["relative_path"],
+        )
+        event_payloads = [
+            event.payload
+            for event in session.timeline
+            if event.event_type == "agent_step_output_invalid"
+        ]
+        self.assertTrue(
+            any(
+                "relative_path is required for read_file" in payload.get("error", "")
+                for payload in event_payloads
+            )
+        )
+
     def test_run_next_step_grants_directory_path_second_chance_repair(self):
         temp_dir, session = self.make_session()
         self.addCleanup(temp_dir.cleanup)
@@ -339,6 +433,119 @@ class AgentRunnerTest(unittest.TestCase):
         event_types = [event.event_type for event in session.timeline]
         self.assertIn(
             "agent_step_output_directory_path_second_chance_requested",
+            event_types,
+        )
+        event_payloads = [
+            event.payload
+            for event in session.timeline
+            if event.event_type == "agent_step_output_retry_requested"
+        ]
+        self.assertEqual(2, len(event_payloads))
+
+    def test_run_next_step_grants_missing_relative_path_second_chance_repair(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        session.update_plan("1. Inspect\n2. Fix\n3. Test")
+        session.approve_plan()
+        self.seed_todos(session)
+        source_dir = session.repo_path / "demo_app"
+        source_dir.mkdir()
+        (source_dir / "string_tools.py").write_text(
+            "def slugify_title(value: str) -> str:\n    return value\n",
+            encoding="utf-8",
+        )
+        runner = AgentRunner(
+            FakeModelClient(
+                [
+                    (
+                        '{"summary":"Read the implementation first.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{"tool_type":"read_file"}}'
+                    ),
+                    (
+                        '{"summary":"Still inspect the implementation.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{"tool_type":"read_file"}}'
+                    ),
+                    (
+                        '{"summary":"Read the slug helper directly.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{"tool_type":"read_file","relative_path":"demo_app/string_tools.py"}}'
+                    ),
+                ]
+            )
+        )
+
+        outcome = runner.run_next_step(session)
+
+        self.assertEqual("request_tool", outcome.decision.action)
+        self.assertEqual("executed", outcome.tool_result.status)
+        self.assertEqual("read_file", outcome.tool_result.tool_name)
+        self.assertEqual(
+            "demo_app/string_tools.py",
+            outcome.tool_result.data["relative_path"],
+        )
+        event_types = [event.event_type for event in session.timeline]
+        self.assertIn(
+            "agent_step_output_missing_relative_path_second_chance_requested",
+            event_types,
+        )
+        event_payloads = [
+            event.payload
+            for event in session.timeline
+            if event.event_type == "agent_step_output_retry_requested"
+        ]
+        self.assertEqual(2, len(event_payloads))
+
+    def test_run_next_step_grants_missing_repo_file_second_chance_repair(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        session.update_plan("1. Inspect\n2. Fix\n3. Test")
+        session.approve_plan()
+        self.seed_todos(session)
+        source_dir = session.repo_path / "demo_app"
+        source_dir.mkdir()
+        (source_dir / "number_tools.py").write_text(
+            "def clamp(value: int, lower: int, upper: int) -> int:\n    return value\n",
+            encoding="utf-8",
+        )
+        tests_dir = session.repo_path / "tests"
+        tests_dir.mkdir(exist_ok=True)
+        (tests_dir / "test_number_tools.py").write_text(
+            "def test_placeholder() -> None:\n    assert True\n",
+            encoding="utf-8",
+        )
+        runner = AgentRunner(
+            FakeModelClient(
+                [
+                    (
+                        '{"summary":"Read the missing clamp helper.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{"tool_type":"read_file","relative_path":"clamp.py"}}'
+                    ),
+                    (
+                        '{"summary":"Read another missing helper.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{"tool_type":"read_file","relative_path":"number_helper.py"}}'
+                    ),
+                    (
+                        '{"summary":"Read the existing number helper.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{"tool_type":"read_file","relative_path":"demo_app/number_tools.py"}}'
+                    ),
+                ]
+            )
+        )
+
+        outcome = runner.run_next_step(session)
+
+        self.assertEqual("request_tool", outcome.decision.action)
+        self.assertEqual("executed", outcome.tool_result.status)
+        self.assertEqual("read_file", outcome.tool_result.tool_name)
+        self.assertEqual("demo_app/number_tools.py", outcome.tool_result.data["relative_path"])
+        event_types = [event.event_type for event in session.timeline]
+        self.assertIn(
+            "agent_step_output_missing_repo_file_second_chance_requested",
             event_types,
         )
         event_payloads = [

@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from repo_task_runtime import AgentRunner, ModelResponse
+from repo_task_runtime import AgentRunner, ModelClientError, ModelResponse
 from repo_task_runtime.eval_pack import (
     APPROVAL_MODE_AUTO_APPROVE_EDITS,
     APPROVAL_MODE_STOP_ON_REQUEST,
@@ -204,6 +204,15 @@ class EditWithoutReadEvalModelClient(RuleBasedEvalModelClient):
         )
 
 
+class TransportFailureEvalModelClient(RuleBasedEvalModelClient):
+    def complete(self, *, system_prompt: str, user_prompt: str) -> ModelResponse:
+        if "repo-task planning assistant" in system_prompt:
+            return super().complete(system_prompt=system_prompt, user_prompt=user_prompt)
+        raise ModelClientError(
+            "Model request failed after 2 attempts: EOF occurred in violation of protocol (_ssl.c:1129)"
+        )
+
+
 class EvalPackTest(unittest.TestCase):
     def test_builtin_eval_cases_are_stable(self):
         cases = builtin_eval_cases()
@@ -332,6 +341,18 @@ class EvalPackTest(unittest.TestCase):
         self.assertFalse(report.success)
         self.assertEqual("runner_failed", report.stop_reason)
         self.assertEqual("edit_without_read", report.failure_reason)
+
+    def test_eval_runner_classifies_model_transport_failures(self):
+        runner = EvalRunner(
+            agent_runner=AgentRunner(TransportFailureEvalModelClient()),
+            approval_mode=APPROVAL_MODE_AUTO_APPROVE_EDITS,
+        )
+
+        report = runner.run_case(get_builtin_eval_case("slug_join"))
+
+        self.assertFalse(report.success)
+        self.assertEqual("runner_failed", report.stop_reason)
+        self.assertEqual("model_transport_failed", report.failure_reason)
 
 
 def _slug_join_response(user_prompt: str) -> ModelResponse:

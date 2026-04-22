@@ -591,10 +591,10 @@ class TaskSession:
             message = "Model selected a missing repo file for {0}: {1}.".format(
                 tool_name, relative_path
             )
-            suggestion = self._suggest_existing_file_near(candidate)
-            if suggestion:
-                message += " Choose an existing file path such as {0}.".format(
-                    suggestion
+            suggestions = self._suggest_existing_files_near(candidate, limit=3)
+            if suggestions:
+                message += " Choose one of these existing file paths instead: [{0}].".format(
+                    ", ".join(suggestions)
                 )
             return message
         return None
@@ -607,23 +607,88 @@ class TaskSession:
         )
 
     def _suggest_existing_file_near(self, candidate: Path) -> Optional[str]:
-        parent = candidate.parent
-        search_root = self.repo_path
-        if parent.exists() and parent.is_dir():
-            search_root = parent
-        return self._best_repo_file_suggestion(
+        suggestions = self._suggest_existing_files_near(candidate, limit=1)
+        if not suggestions:
+            return None
+        return suggestions[0]
+
+    def suggest_existing_files_for_missing_relative_path(
+        self, *, tool_name: str, limit: int = 3
+    ) -> List[str]:
+        if limit < 1:
+            return []
+
+        suggestions: List[str] = []
+        seen: set[str] = set()
+        for item in reversed(self.recent_file_contexts):
+            relative_path = item.relative_path
+            if self._is_readme_path(relative_path):
+                continue
+            candidate = self._resolve_repo_path(relative_path)
+            if not candidate.exists() or not candidate.is_file():
+                continue
+            normalized = Path(relative_path).as_posix()
+            if normalized in seen:
+                continue
+            suggestions.append(normalized)
+            seen.add(normalized)
+            if len(suggestions) >= limit:
+                return suggestions
+
+        requested_path = self.repo_path / "{0}.py".format(tool_name)
+        repo_suggestions = self._best_repo_file_suggestions(
+            requested_path=requested_path,
+            search_root=self.repo_path,
+            include_readme=False,
+            limit=limit,
+        )
+        for suggestion in repo_suggestions:
+            normalized = Path(suggestion).as_posix()
+            if normalized in seen:
+                continue
+            suggestions.append(normalized)
+            seen.add(normalized)
+            if len(suggestions) >= limit:
+                break
+        return suggestions
+
+    def _suggest_existing_files_near(
+        self, candidate: Path, *, limit: int
+    ) -> List[str]:
+        search_root = self._nearest_existing_directory(candidate.parent)
+        return self._best_repo_file_suggestions(
             requested_path=candidate,
             search_root=search_root,
             include_readme=False,
+            limit=limit,
         )
 
-    def _best_repo_file_suggestion(
+    def _nearest_existing_directory(self, candidate: Path) -> Path:
+        current = candidate
+        while True:
+            try:
+                current.relative_to(self.repo_path)
+            except ValueError:
+                return self.repo_path
+            if current.exists() and current.is_dir():
+                return current
+            if current == self.repo_path:
+                return self.repo_path
+            if current == current.parent:
+                return self.repo_path
+            current = current.parent
+
+    def _best_repo_file_suggestions(
         self,
         *,
         requested_path: Path,
         search_root: Path,
         include_readme: bool,
-    ) -> Optional[str]:
+        limit: int,
+    ) -> List[str]:
+        if limit < 1:
+            return []
+
         candidates = self._collect_suggestable_files(
             search_root,
             include_readme=include_readme,
@@ -634,22 +699,42 @@ class TaskSession:
                 include_readme=include_readme,
             )
         if not candidates and not include_readme:
-            return self._best_repo_file_suggestion(
+            return self._best_repo_file_suggestions(
                 requested_path=requested_path,
                 search_root=search_root,
                 include_readme=True,
+                limit=limit,
             )
         if not candidates:
-            return None
+            return []
 
-        best = min(
+        ordered = sorted(
             candidates,
             key=lambda path: self._suggestion_sort_key(
                 path,
                 requested_path=requested_path,
             ),
         )
-        return str(best.relative_to(self.repo_path))
+        return [
+            str(path.relative_to(self.repo_path)) for path in ordered[:limit]
+        ]
+
+    def _best_repo_file_suggestion(
+        self,
+        *,
+        requested_path: Path,
+        search_root: Path,
+        include_readme: bool,
+    ) -> Optional[str]:
+        suggestions = self._best_repo_file_suggestions(
+            requested_path=requested_path,
+            search_root=search_root,
+            include_readme=include_readme,
+            limit=1,
+        )
+        if not suggestions:
+            return None
+        return suggestions[0]
 
     def _collect_suggestable_files(
         self, search_root: Path, *, include_readme: bool

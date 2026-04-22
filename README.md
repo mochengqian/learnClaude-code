@@ -305,6 +305,21 @@ python3 scripts/run_eval.py \
 
 `run_eval.py` 会自动创建父目录，适合后续把不同模型、不同 approval 模式的基线结果都落成一组稳定 JSON。
 
+但从仓库治理角度，`artifacts/eval/*.json` 只作为本地运行产物保留，不纳入 git。
+每次 checkpoint 只更新一份可提交的基线摘要：
+
+- [artifacts/eval/BASELINE.md](/Users/luan/claude-code-main/learnClaude-code/artifacts/eval/BASELINE.md:1)
+
+这份摘要只记录稳定字段，例如：
+
+- checkpoint / commit / model
+- 每种 approval mode 的通过率
+- 平均步数
+- 平均重复 `read_file`
+- 同文件复读 case 数
+- 聚合后的 `failure_reason_counts`
+- 每个 case 的稳定结论
+
 当前输出除了通过率和失败原因，还开始补上 `context bundle` 的效果代理指标：
 
 - 通过 / 失败数量

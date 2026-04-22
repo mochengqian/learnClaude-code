@@ -221,6 +221,8 @@ class AgentRunner:
     ) -> Tuple[Any, Dict[str, Any]]:
         current_prompt_context = prompt_context
         remaining_directory_path_second_chances = 1
+        remaining_missing_relative_path_second_chances = 1
+        remaining_missing_repo_file_second_chances = 1
 
         for attempt in range(self.max_output_retries + 2):
             response = self.model_client.complete(
@@ -245,12 +247,43 @@ class AgentRunner:
                     and remaining_directory_path_second_chances > 0
                     and self._is_directory_path_error(str(exc))
                 )
-                if not standard_retry_available and not directory_path_second_chance:
+                missing_repo_file_second_chance = (
+                    not standard_retry_available
+                    and remaining_missing_repo_file_second_chances > 0
+                    and self._is_missing_repo_file_error(str(exc))
+                )
+                missing_relative_path_second_chance = (
+                    not standard_retry_available
+                    and remaining_missing_relative_path_second_chances > 0
+                    and self._is_missing_relative_path_error(str(exc))
+                )
+                if (
+                    not standard_retry_available
+                    and not directory_path_second_chance
+                    and not missing_relative_path_second_chance
+                    and not missing_repo_file_second_chance
+                ):
                     raise
                 if directory_path_second_chance:
                     remaining_directory_path_second_chances -= 1
                     session.record_event(
                         "agent_step_output_directory_path_second_chance_requested",
+                        model=response.model,
+                        attempt=attempt + 1,
+                        error=str(exc),
+                    )
+                if missing_relative_path_second_chance:
+                    remaining_missing_relative_path_second_chances -= 1
+                    session.record_event(
+                        "agent_step_output_missing_relative_path_second_chance_requested",
+                        model=response.model,
+                        attempt=attempt + 1,
+                        error=str(exc),
+                    )
+                if missing_repo_file_second_chance:
+                    remaining_missing_repo_file_second_chances -= 1
+                    session.record_event(
+                        "agent_step_output_missing_repo_file_second_chance_requested",
                         model=response.model,
                         attempt=attempt + 1,
                         error=str(exc),
@@ -296,6 +329,13 @@ class AgentRunner:
                     "If finish is blocked, choose the next request_tool action instead."
                 ),
                 "directory_path_repair": self._build_directory_path_repair(
+                    validation_error
+                ),
+                "missing_relative_path_repair": self._build_missing_relative_path_repair(
+                    session=session,
+                    validation_error=validation_error,
+                ),
+                "missing_repo_file_repair": self._build_missing_repo_file_repair(
                     validation_error
                 ),
             },
@@ -354,6 +394,12 @@ class AgentRunner:
     def _is_directory_path_error(self, validation_error: str) -> bool:
         return "directory path for" in validation_error.lower()
 
+    def _is_missing_relative_path_error(self, validation_error: str) -> bool:
+        return "relative_path is required for" in validation_error.lower()
+
+    def _is_missing_repo_file_error(self, validation_error: str) -> bool:
+        return "missing repo file for" in validation_error.lower()
+
     def _build_directory_path_repair(
         self, validation_error: str
     ) -> Optional[Dict[str, Any]]:
@@ -383,6 +429,93 @@ class AgentRunner:
             "suggested_relative_path": suggested_relative_path,
             "instruction": instruction,
         }
+
+    def _build_missing_relative_path_repair(
+        self, *, session: TaskSession, validation_error: str
+    ) -> Optional[Dict[str, Any]]:
+        if not self._is_missing_relative_path_error(validation_error):
+            return None
+
+        tool_name = self._extract_missing_relative_path_tool_name(validation_error)
+        suggested_relative_paths: List[str] = []
+        if tool_name in {"read_file", "file_patch", "write_file"}:
+            suggested_relative_paths = session.suggest_existing_files_for_missing_relative_path(
+                tool_name=tool_name,
+                limit=3,
+            )
+
+        instruction = (
+            "The previous tool_request omitted the required relative_path field. "
+            "Return the same JSON schema, include a non-empty relative_path, and do "
+            "not omit the field again."
+        )
+        if tool_name in {"read_file", "file_patch", "write_file"}:
+            instruction += (
+                " For {0}, relative_path must point to an existing repo file."
+            ).format(tool_name)
+        if suggested_relative_paths:
+            instruction += " Choose one of these existing file paths if it fits the task: {0}.".format(
+                ", ".join(suggested_relative_paths)
+            )
+
+        return {
+            "required_field": "relative_path",
+            "tool_type": tool_name,
+            "suggested_relative_paths": suggested_relative_paths,
+            "instruction": instruction,
+        }
+
+    def _build_missing_repo_file_repair(
+        self, validation_error: str
+    ) -> Optional[Dict[str, Any]]:
+        if not self._is_missing_repo_file_error(validation_error):
+            return None
+
+        suggested_relative_paths = self._extract_missing_repo_file_suggestions(
+            validation_error
+        )
+        instruction = (
+            "The previous tool_request used a relative_path that does not exist in "
+            "the repo. Return the same JSON schema, but replace relative_path with "
+            "an existing repo file path. Do not invent a new filename."
+        )
+        if suggested_relative_paths:
+            instruction += " Choose one of these existing file paths if it fits the task: {0}.".format(
+                ", ".join(suggested_relative_paths)
+            )
+
+        return {
+            "must_choose_existing_file_path": True,
+            "suggested_relative_paths": suggested_relative_paths,
+            "instruction": instruction,
+        }
+
+    def _extract_missing_repo_file_suggestions(
+        self, validation_error: str
+    ) -> List[str]:
+        match = re.search(
+            r"Choose one of these existing file paths instead: \[([^\]]+)\]\.",
+            validation_error,
+        )
+        if not match:
+            return []
+        return [
+            suggestion.strip()
+            for suggestion in match.group(1).split(",")
+            if suggestion.strip()
+        ]
+
+    def _extract_missing_relative_path_tool_name(
+        self, validation_error: str
+    ) -> Optional[str]:
+        match = re.search(
+            r"relative_path is required for ([a-z_]+)\.",
+            validation_error,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            return None
+        return match.group(1).strip().lower()
 
 
 def _parse_json_object(raw_text: str) -> Dict[str, Any]:

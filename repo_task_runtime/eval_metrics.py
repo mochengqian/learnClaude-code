@@ -11,6 +11,26 @@ from .models import ToolExecutionResult
 from .session import TaskSession
 
 
+TRANSPORT_FAILURE_KEYWORDS = (
+    "connection aborted",
+    "connection reset",
+    "eof occurred in violation of protocol",
+    "remote end closed connection",
+    "temporary failure",
+    "timed out",
+    "timeout",
+    "unexpected eof",
+)
+TRANSPORT_FAILURE_HTTP_CODES = (
+    "http 408",
+    "http 429",
+    "http 500",
+    "http 502",
+    "http 503",
+    "http 504",
+)
+
+
 def count_agent_steps(session: TaskSession) -> int:
     return sum(
         1
@@ -117,6 +137,8 @@ def classify_runner_failure(last_failure_message: str) -> str:
     if not message:
         return "runner_failed"
 
+    if _is_model_transport_failure(message):
+        return "model_transport_failed"
     if "relative_path is required" in message:
         return "missing_relative_path"
     if "edit without recent file context for file_patch" in message:
@@ -138,6 +160,14 @@ def classify_runner_failure(last_failure_message: str) -> str:
     ):
         return "invalid_model_output"
     return "runner_failed"
+
+
+def _is_model_transport_failure(message: str) -> bool:
+    if "model request failed" not in message:
+        return False
+    if any(keyword in message for keyword in TRANSPORT_FAILURE_KEYWORDS):
+        return True
+    return any(code in message for code in TRANSPORT_FAILURE_HTTP_CODES)
 
 
 def stop_reason_for_result(result: ToolExecutionResult) -> str:

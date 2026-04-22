@@ -225,7 +225,61 @@ class TaskRuntimeTest(unittest.TestCase):
 
         self.assertIsNotNone(message)
         self.assertIn("demo_app/string_tools.py", message)
+        self.assertIn("tests/test_string_tools.py", message)
         self.assertNotIn("README.md", message)
+
+    def test_missing_path_suggestion_uses_nearest_existing_directory(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        helpers_dir = session.repo_path / "demo_app" / "helpers"
+        helpers_dir.mkdir(parents=True)
+        (helpers_dir / "number_tools.py").write_text(
+            "def clamp(value: int, lower: int, upper: int) -> int:\n    return value\n",
+            encoding="utf-8",
+        )
+        (session.repo_path / "demo_app" / "string_tools.py").write_text(
+            "def slugify_title(value: str) -> str:\n    return value\n",
+            encoding="utf-8",
+        )
+
+        message = session.validate_tool_request_path(
+            FileReadRequest(relative_path="demo_app/helpers/missing/clamp.py")
+        )
+
+        self.assertIsNotNone(message)
+        self.assertIn("demo_app/helpers/number_tools.py", message)
+        self.assertNotIn("demo_app/string_tools.py", message)
+
+    def test_missing_relative_path_suggestions_prefer_recent_code_context(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        session.approve_plan()
+        source_dir = session.repo_path / "demo_app"
+        source_dir.mkdir()
+        (source_dir / "string_tools.py").write_text(
+            "def slugify_title(value: str) -> str:\n    return value\n",
+            encoding="utf-8",
+        )
+        tests_dir = session.repo_path / "tests"
+        tests_dir.mkdir(exist_ok=True)
+        (tests_dir / "test_string_tools.py").write_text(
+            "def test_placeholder() -> None:\n    assert True\n",
+            encoding="utf-8",
+        )
+
+        read_result = session.request_tool(
+            FileReadRequest(relative_path="demo_app/string_tools.py")
+        )
+        self.assertEqual("executed", read_result.status)
+
+        suggestions = session.suggest_existing_files_for_missing_relative_path(
+            tool_name="read_file",
+            limit=3,
+        )
+
+        self.assertGreaterEqual(len(suggestions), 1)
+        self.assertEqual("demo_app/string_tools.py", suggestions[0])
+        self.assertNotIn("README.md", suggestions)
 
     def test_directory_path_suggestion_prefers_file_inside_directory(self):
         temp_dir, session = self.make_session()
