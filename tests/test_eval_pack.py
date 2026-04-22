@@ -129,6 +129,81 @@ class RepeatedReadEvalModelClient(RuleBasedEvalModelClient):
         )
 
 
+class MissingPathEvalModelClient(RuleBasedEvalModelClient):
+    def complete(self, *, system_prompt: str, user_prompt: str) -> ModelResponse:
+        if "repo-task planning assistant" in system_prompt:
+            return super().complete(system_prompt=system_prompt, user_prompt=user_prompt)
+        return ModelResponse(
+            text=json.dumps(
+                {
+                    "summary": "Read the implementation first.",
+                    "action": "request_tool",
+                    "tool_request": {"tool_type": "read_file"},
+                }
+            ),
+            model="gpt-5.4-mini-test",
+            usage={"total_tokens": 111},
+        )
+
+
+class DirectoryPathEvalModelClient(RuleBasedEvalModelClient):
+    def complete(self, *, system_prompt: str, user_prompt: str) -> ModelResponse:
+        if "repo-task planning assistant" in system_prompt:
+            return super().complete(system_prompt=system_prompt, user_prompt=user_prompt)
+        return ModelResponse(
+            text=json.dumps(
+                {
+                    "summary": "Read the demo_app directory first.",
+                    "action": "request_tool",
+                    "tool_request": {
+                        "tool_type": "read_file",
+                        "relative_path": "demo_app",
+                    },
+                }
+            ),
+            model="gpt-5.4-mini-test",
+            usage={"total_tokens": 111},
+        )
+
+
+class InvalidFinishEvalModelClient(RuleBasedEvalModelClient):
+    def complete(self, *, system_prompt: str, user_prompt: str) -> ModelResponse:
+        if "repo-task planning assistant" in system_prompt:
+            return super().complete(system_prompt=system_prompt, user_prompt=user_prompt)
+        return ModelResponse(
+            text=json.dumps(
+                {
+                    "summary": "The task is complete.",
+                    "action": "finish",
+                }
+            ),
+            model="gpt-5.4-mini-test",
+            usage={"total_tokens": 111},
+        )
+
+
+class EditWithoutReadEvalModelClient(RuleBasedEvalModelClient):
+    def complete(self, *, system_prompt: str, user_prompt: str) -> ModelResponse:
+        if "repo-task planning assistant" in system_prompt:
+            return super().complete(system_prompt=system_prompt, user_prompt=user_prompt)
+        return ModelResponse(
+            text=json.dumps(
+                {
+                    "summary": "Patch the slug helper immediately.",
+                    "action": "request_tool",
+                    "tool_request": {
+                        "tool_type": "file_patch",
+                        "relative_path": "demo_app/string_tools.py",
+                        "expected_old_snippet": '"_".join(parts)',
+                        "new_snippet": '"-".join(parts)',
+                    },
+                }
+            ),
+            model="gpt-5.4-mini-test",
+            usage={"total_tokens": 111},
+        )
+
+
 class EvalPackTest(unittest.TestCase):
     def test_builtin_eval_cases_are_stable(self):
         cases = builtin_eval_cases()
@@ -209,6 +284,54 @@ class EvalPackTest(unittest.TestCase):
             ("demo_app/string_tools.py",),
             case.context_bundle_metrics.same_file_reread_paths,
         )
+
+    def test_eval_runner_classifies_missing_relative_path_failures(self):
+        runner = EvalRunner(
+            agent_runner=AgentRunner(MissingPathEvalModelClient()),
+            approval_mode=APPROVAL_MODE_AUTO_APPROVE_EDITS,
+        )
+
+        report = runner.run_case(get_builtin_eval_case("slug_join"))
+
+        self.assertFalse(report.success)
+        self.assertEqual("runner_failed", report.stop_reason)
+        self.assertEqual("missing_relative_path", report.failure_reason)
+
+    def test_eval_runner_classifies_directory_path_failures(self):
+        runner = EvalRunner(
+            agent_runner=AgentRunner(DirectoryPathEvalModelClient()),
+            approval_mode=APPROVAL_MODE_AUTO_APPROVE_EDITS,
+        )
+
+        report = runner.run_case(get_builtin_eval_case("slug_join"))
+
+        self.assertFalse(report.success)
+        self.assertEqual("runner_failed", report.stop_reason)
+        self.assertEqual("directory_path", report.failure_reason)
+
+    def test_eval_runner_classifies_invalid_finish_failures(self):
+        runner = EvalRunner(
+            agent_runner=AgentRunner(InvalidFinishEvalModelClient()),
+            approval_mode=APPROVAL_MODE_AUTO_APPROVE_EDITS,
+        )
+
+        report = runner.run_case(get_builtin_eval_case("slug_join"))
+
+        self.assertFalse(report.success)
+        self.assertEqual("runner_failed", report.stop_reason)
+        self.assertEqual("invalid_finish", report.failure_reason)
+
+    def test_eval_runner_classifies_edit_without_read_failures(self):
+        runner = EvalRunner(
+            agent_runner=AgentRunner(EditWithoutReadEvalModelClient()),
+            approval_mode=APPROVAL_MODE_AUTO_APPROVE_EDITS,
+        )
+
+        report = runner.run_case(get_builtin_eval_case("slug_join"))
+
+        self.assertFalse(report.success)
+        self.assertEqual("runner_failed", report.stop_reason)
+        self.assertEqual("edit_without_read", report.failure_reason)
 
 
 def _slug_join_response(user_prompt: str) -> ModelResponse:

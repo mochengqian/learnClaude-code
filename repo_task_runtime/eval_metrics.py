@@ -112,6 +112,34 @@ def derive_failure_reason(
     return "runner_failed"
 
 
+def classify_runner_failure(last_failure_message: str) -> str:
+    message = last_failure_message.strip().lower()
+    if not message:
+        return "runner_failed"
+
+    if "relative_path is required" in message:
+        return "missing_relative_path"
+    if "edit without recent file context for file_patch" in message:
+        return "edit_without_read"
+    if "edit without recent file context for write_file" in message:
+        return "edit_without_read"
+    if "directory path for" in message:
+        return "directory_path"
+    if "missing repo file for" in message:
+        return "missing_repo_file"
+    if "invalid finish action" in message:
+        return "invalid_finish"
+    if (
+        "invalid json" in message
+        or "did not return a json object" in message
+        or "unsupported action" in message
+        or "tool_request without a tool_request object" in message
+        or "invalid tool_request" in message
+    ):
+        return "invalid_model_output"
+    return "runner_failed"
+
+
 def stop_reason_for_result(result: ToolExecutionResult) -> str:
     if result.status == "approval_required":
         return "approval_required"

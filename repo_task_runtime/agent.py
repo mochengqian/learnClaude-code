@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from .context_bundle import ContextBundleBuilder
 from .model_client import ModelClientError
@@ -67,17 +67,22 @@ Rules:
 - Use write_file mainly for new files or full rewrites.
 - run_test is only for local tests.
 - shell should stay conservative and read-oriented.
-- If the task is complete, return action=finish.
+- Do not return finish unless a local run_test has already succeeded for the current repo state.
+- If the task might be complete but the current repo state has not passed a local test yet, request run_test instead of finish.
 - Do not add commentary outside the JSON object.
 """.strip()
 
 
 class AgentRunner:
     def __init__(
-        self, model_client: Any, context_builder: Optional[ContextBundleBuilder] = None
+        self,
+        model_client: Any,
+        context_builder: Optional[ContextBundleBuilder] = None,
+        max_output_retries: int = 1,
     ) -> None:
         self.model_client = model_client
         self.context_builder = context_builder or ContextBundleBuilder()
+        self.max_output_retries = max_output_retries
 
     def draft_plan(self, session: TaskSession) -> AgentPlanDraft:
         if not session.task_input:
@@ -122,18 +127,9 @@ class AgentRunner:
             "task_input": session.task_input,
             "snapshot": self._snapshot_context(session),
         }
-        response = self.model_client.complete(
-            system_prompt=_STEP_SYSTEM_PROMPT,
-            user_prompt=json.dumps(prompt_context, indent=2, ensure_ascii=False),
-        )
-        payload = _parse_json_object(response.text)
-
+        response, payload = self._request_step_payload(session, prompt_context)
         action = str(payload.get("action") or "").strip()
         summary = str(payload.get("summary") or "").strip()
-        if action not in {"request_tool", "finish"}:
-            raise ModelClientError("Model returned an unsupported action: {0}".format(action))
-        if not summary:
-            raise ModelClientError("Model returned an empty action summary.")
 
         if action == "finish":
             decision = AgentDecision(
@@ -153,15 +149,7 @@ class AgentRunner:
             _sync_todos_after_agent_step(session, outcome)
             return outcome
 
-        tool_payload = payload.get("tool_request")
-        if not isinstance(tool_payload, dict):
-            raise ModelClientError("Model returned request_tool without a tool_request object.")
-        try:
-            tool_request = tool_request_from_payload(tool_payload)
-        except (TypeError, ValueError) as exc:
-            raise ModelClientError(
-                "Model returned an invalid tool_request: {0}".format(exc)
-            ) from exc
+        tool_request = self._tool_request_from_payload(payload)
         decision = AgentDecision(
             summary=summary,
             action=action,
@@ -225,6 +213,112 @@ class AgentRunner:
 
     def _snapshot_context(self, session: TaskSession) -> Dict[str, Any]:
         return self.context_builder.build(session)
+
+    def _request_step_payload(
+        self, session: TaskSession, prompt_context: Dict[str, Any]
+    ) -> Tuple[Any, Dict[str, Any]]:
+        current_prompt_context = prompt_context
+
+        for attempt in range(self.max_output_retries + 1):
+            response = self.model_client.complete(
+                system_prompt=_STEP_SYSTEM_PROMPT,
+                user_prompt=json.dumps(
+                    current_prompt_context, indent=2, ensure_ascii=False
+                ),
+            )
+            try:
+                payload = _parse_json_object(response.text)
+                self._validate_step_payload(session, payload)
+            except ModelClientError as exc:
+                session.record_event(
+                    "agent_step_output_invalid",
+                    model=response.model,
+                    attempt=attempt + 1,
+                    error=str(exc),
+                )
+                if attempt >= self.max_output_retries:
+                    raise
+                session.record_event(
+                    "agent_step_output_retry_requested",
+                    model=response.model,
+                    attempt=attempt + 1,
+                    error=str(exc),
+                )
+                current_prompt_context = self._build_repair_prompt_context(
+                    session=session,
+                    validation_error=str(exc),
+                    previous_output=response.text,
+                )
+                continue
+
+            if attempt > 0:
+                session.record_event(
+                    "agent_step_output_repaired",
+                    model=response.model,
+                    attempts_used=attempt + 1,
+                )
+            return response, payload
+
+        raise AssertionError("unreachable")
+
+    def _build_repair_prompt_context(
+        self,
+        *,
+        session: TaskSession,
+        validation_error: str,
+        previous_output: str,
+    ) -> Dict[str, Any]:
+        return {
+            "task_input": session.task_input,
+            "snapshot": self._snapshot_context(session),
+            "repair_request": {
+                "validation_error": validation_error,
+                "previous_output": previous_output,
+                "instruction": (
+                    "Return corrected JSON only using the required runtime schema. "
+                    "If finish is blocked, choose the next request_tool action instead."
+                ),
+            },
+        }
+
+    def _validate_step_payload(
+        self, session: TaskSession, payload: Dict[str, Any]
+    ) -> None:
+        action = str(payload.get("action") or "").strip()
+        summary = str(payload.get("summary") or "").strip()
+        if action not in {"request_tool", "finish"}:
+            raise ModelClientError(
+                "Model returned an unsupported action: {0}".format(action)
+            )
+        if not summary:
+            raise ModelClientError("Model returned an empty action summary.")
+        if action == "finish" and not session.has_successful_test_for_current_state():
+            raise ModelClientError(
+                "Model returned an invalid finish action: {0}".format(
+                    session.finish_block_reason()
+                )
+            )
+        if action == "request_tool":
+            tool_request = self._tool_request_from_payload(payload)
+            path_error = session.validate_tool_request_path(tool_request)
+            if path_error:
+                raise ModelClientError(path_error)
+            edit_context_error = session.validate_tool_request_edit_context(tool_request)
+            if edit_context_error:
+                raise ModelClientError(edit_context_error)
+
+    def _tool_request_from_payload(self, payload: Dict[str, Any]):
+        tool_payload = payload.get("tool_request")
+        if not isinstance(tool_payload, dict):
+            raise ModelClientError(
+                "Model returned request_tool without a tool_request object."
+            )
+        try:
+            return tool_request_from_payload(tool_payload)
+        except (TypeError, ValueError) as exc:
+            raise ModelClientError(
+                "Model returned an invalid tool_request: {0}".format(exc)
+            ) from exc
 
     def _ensure_ready_for_step(self, session: TaskSession) -> None:
         if not session.task_input:

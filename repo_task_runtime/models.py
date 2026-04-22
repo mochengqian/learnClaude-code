@@ -260,6 +260,22 @@ class RecentTestFailure:
         }
 
 
+@dataclass(frozen=True)
+class SuccessfulTestRun:
+    command: Tuple[str, ...]
+    exit_code: int
+    repo_state_revision: int
+    captured_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "command": list(self.command),
+            "exit_code": self.exit_code,
+            "repo_state_revision": self.repo_state_revision,
+            "captured_at": self.captured_at,
+        }
+
+
 @dataclass
 class AgentPlanDraft:
     plan_markdown: str
@@ -413,6 +429,7 @@ class TaskSnapshot:
     timeline: Sequence[TimelineEvent]
     pending_approvals: Sequence[ApprovalRequest]
     latest_tool_result: Optional[ToolExecutionResult] = None
+    latest_successful_test: Optional[SuccessfulTestRun] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -429,5 +446,10 @@ class TaskSnapshot:
             ],
             "latest_tool_result": (
                 self.latest_tool_result.to_dict() if self.latest_tool_result else None
+            ),
+            "latest_successful_test": (
+                self.latest_successful_test.to_dict()
+                if self.latest_successful_test
+                else None
             ),
         }

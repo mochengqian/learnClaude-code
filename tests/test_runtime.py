@@ -171,6 +171,38 @@ class TaskRuntimeTest(unittest.TestCase):
         self.assertEqual("denied", denied.status)
         self.assertIn("dangerous", denied.message)
 
+    def test_successful_test_is_bound_to_current_repo_state(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        session.approve_plan()
+
+        tests_dir = session.repo_path / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_smoke.py").write_text(
+            "import unittest\n\n\n"
+            "class SmokeTest(unittest.TestCase):\n"
+            "    def test_truth(self):\n"
+            "        self.assertTrue(True)\n",
+            encoding="utf-8",
+        )
+
+        test_result = session.request_tool(
+            TestCommandRequest(
+                command=("python3", "-m", "unittest", "discover", "-s", "tests")
+            )
+        )
+        self.assertEqual(0, test_result.exit_code)
+        self.assertTrue(session.has_successful_test_for_current_state())
+        self.assertIsNotNone(session.snapshot().latest_successful_test)
+
+        pending = session.request_tool(
+            WriteFileRequest(relative_path="notes.txt", content="mutated\n")
+        )
+        executed = session.resolve_approval(pending.approval_id, approve=True)
+        self.assertEqual("executed", executed.status)
+        self.assertFalse(session.has_successful_test_for_current_state())
+        self.assertIsNone(session.snapshot().latest_successful_test)
+
     def test_begin_task_resets_previous_task_state(self):
         temp_dir, session = self.make_session()
         self.addCleanup(temp_dir.cleanup)

@@ -104,6 +104,7 @@ class ContextBundleTest(unittest.TestCase):
         self.assertEqual("demo_app/app.py", bundle["recent_file_contexts"][0]["relative_path"])
         self.assertIn('return "bad"', bundle["recent_file_contexts"][0]["content"])
         self.assertEqual(1, bundle["recent_test_failures"][0]["exit_code"])
+        self.assertIsNone(bundle["latest_successful_test"])
 
         pending = session.request_tool(
             FilePatchRequest(
@@ -127,6 +128,7 @@ class ContextBundleTest(unittest.TestCase):
         self.assertEqual("file_patch", bundle["recent_file_contexts"][0]["source_tool"])
         self.assertIn('return "good"', bundle["recent_file_contexts"][0]["content"])
         self.assertEqual([], bundle["recent_test_failures"])
+        self.assertEqual(0, bundle["latest_successful_test"]["exit_code"])
 
     def test_agent_step_prompt_includes_context_bundle(self):
         temp_dir, session = self.make_session()
@@ -143,17 +145,21 @@ class ContextBundleTest(unittest.TestCase):
         )
         self.assertEqual(1, failed_test.exit_code)
 
-        model_client = RecordingModelClient('{"summary":"Done for now.","action":"finish"}')
+        model_client = RecordingModelClient(
+            '{"summary":"Read the file again.","action":"request_tool",'
+            '"tool_request":{"tool_type":"read_file","relative_path":"demo_app/app.py"}}'
+        )
         runner = AgentRunner(model_client, context_builder=ContextBundleBuilder())
 
         outcome = runner.run_next_step(session)
 
-        self.assertEqual("finish", outcome.decision.action)
+        self.assertEqual("request_tool", outcome.decision.action)
         prompt_payload = json.loads(model_client.prompts[-1]["user_prompt"])
         snapshot = prompt_payload["snapshot"]
         self.assertEqual("run_test", snapshot["latest_tool_result"]["tool_name"])
         self.assertEqual("demo_app/app.py", snapshot["recent_file_contexts"][0]["relative_path"])
         self.assertEqual(1, snapshot["recent_test_failures"][0]["exit_code"])
+        self.assertIsNone(snapshot["latest_successful_test"])
 
 
 if __name__ == "__main__":

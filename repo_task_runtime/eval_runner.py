@@ -6,6 +6,7 @@ from .agent import AgentRunner
 from .eval_cases import create_eval_repo
 from .eval_metrics import (
     aggregate_context_bundle_suite_metrics,
+    classify_runner_failure,
     collect_context_bundle_case_metrics,
     count_agent_steps,
     derive_failure_reason,
@@ -141,13 +142,14 @@ class EvalRunner:
             )
         except Exception as exc:
             context_bundle_metrics = collect_context_bundle_case_metrics(session)
+            failure_reason = classify_runner_failure(str(exc))
             return EvalCaseReport(
                 case_id=case.case_id,
                 display_name=case.display_name,
                 repo_path=str(repo_path),
                 success=False,
                 stop_reason="runner_failed",
-                failure_reason="runner_failed",
+                failure_reason=failure_reason,
                 steps_completed=count_agent_steps(session),
                 max_steps=self._max_steps_for_case(case),
                 approvals_auto_resolved=approvals_auto_resolved,

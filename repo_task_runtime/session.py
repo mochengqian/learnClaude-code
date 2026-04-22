@@ -14,6 +14,7 @@ from .models import (
     RecentFileContext,
     RecentTestFailure,
     ShellCommandRequest,
+    SuccessfulTestRun,
     TaskSnapshot,
     TestCommandRequest,
     TimelineEvent,
@@ -46,6 +47,8 @@ class TaskSession:
         self.latest_tool_result: Optional[ToolExecutionResult] = None
         self.recent_file_contexts: List[RecentFileContext] = []
         self.recent_test_failures: List[RecentTestFailure] = []
+        self.latest_successful_test: Optional[SuccessfulTestRun] = None
+        self.repo_state_revision = 0
         self.timeline: List[TimelineEvent] = []
         self.pending_approvals: Dict[str, ApprovalRequest] = {}
 
@@ -181,15 +184,78 @@ class TaskSession:
             timeline=list(self.timeline),
             pending_approvals=list(self.pending_approvals.values()),
             latest_tool_result=self.latest_tool_result,
+            latest_successful_test=self.latest_successful_test,
         )
 
     def record_event(self, event_type: str, **payload: object) -> None:
         self._record(event_type, **payload)
 
+    def has_successful_test_for_current_state(self) -> bool:
+        if self.latest_successful_test is None:
+            return False
+        return (
+            self.latest_successful_test.repo_state_revision == self.repo_state_revision
+        )
+
+    def finish_block_reason(self) -> str:
+        return (
+            "Cannot finish before a local test has passed for the current repo state."
+        )
+
+    def validate_tool_request_path(self, request: ToolInvocationRequest) -> Optional[str]:
+        if isinstance(request, FileReadRequest):
+            return self._validate_repo_file_path(
+                request.relative_path,
+                tool_name="read_file",
+                must_exist=True,
+            )
+        if isinstance(request, FilePatchRequest):
+            return self._validate_repo_file_path(
+                request.relative_path,
+                tool_name="file_patch",
+                must_exist=True,
+            )
+        if isinstance(request, WriteFileRequest):
+            return self._validate_repo_file_path(
+                request.relative_path,
+                tool_name="write_file",
+                must_exist=False,
+            )
+        return None
+
+    def validate_tool_request_edit_context(
+        self, request: ToolInvocationRequest
+    ) -> Optional[str]:
+        if isinstance(request, FilePatchRequest):
+            if self._has_recent_file_context(request.relative_path):
+                return None
+            return (
+                "Model attempted to edit without recent file context for file_patch: "
+                "{0}. Read the target file before editing.".format(
+                    request.relative_path
+                )
+            )
+
+        if isinstance(request, WriteFileRequest):
+            candidate = self._resolve_repo_path(request.relative_path)
+            if not candidate.exists():
+                return None
+            if self._has_recent_file_context(request.relative_path):
+                return None
+            return (
+                "Model attempted to edit without recent file context for write_file: "
+                "{0}. Read the target file before editing.".format(
+                    request.relative_path
+                )
+            )
+
+        return None
+
     def _execute_request(
         self, request: ToolInvocationRequest, approved_by: Optional[str]
     ) -> ToolExecutionResult:
         tool_name = tool_name_for_request(request)
+        repo_state_mutated = False
 
         if isinstance(request, FileReadRequest):
             resolved_path = self._resolve_repo_path(request.relative_path)
@@ -265,6 +331,7 @@ class TaskSession:
                     "replace_all": request.replace_all,
                 },
             )
+            repo_state_mutated = True
         elif isinstance(request, WriteFileRequest):
             resolved_path = self._resolve_repo_path(request.relative_path)
             old_content = ""
@@ -287,7 +354,11 @@ class TaskSession:
                 diff=file_diff,
                 data={"relative_path": request.relative_path},
             )
+            repo_state_mutated = True
         elif isinstance(request, (ShellCommandRequest, TestCommandRequest)):
+            before_diff = ""
+            if isinstance(request, ShellCommandRequest):
+                before_diff = repo_git_diff(self.repo_path)
             completed = subprocess.run(
                 list(request.command),
                 cwd=str(self.repo_path),
@@ -314,9 +385,13 @@ class TaskSession:
                     stdout=completed.stdout,
                     stderr=completed.stderr,
                 )
+            else:
+                repo_state_mutated = before_diff != diff
         else:
             raise TypeError("Unsupported request: {0}".format(type(request)))
 
+        if repo_state_mutated:
+            self._mark_repo_state_mutated(tool_name)
         self.latest_tool_result = result
         self.latest_diff = repo_git_diff(self.repo_path) or result.diff
         self._record(
@@ -378,6 +453,8 @@ class TaskSession:
         self.latest_tool_result = None
         self.recent_file_contexts = []
         self.recent_test_failures = []
+        self.latest_successful_test = None
+        self.repo_state_revision = 0
         self.timeline = []
         self.pending_approvals = {}
 
@@ -407,8 +484,14 @@ class TaskSession:
     ) -> None:
         if exit_code in {0, None}:
             self.recent_test_failures = []
+            self.latest_successful_test = SuccessfulTestRun(
+                command=command,
+                exit_code=int(exit_code or 0),
+                repo_state_revision=self.repo_state_revision,
+            )
             return
 
+        self.latest_successful_test = None
         self.recent_test_failures.append(
             RecentTestFailure(
                 command=command,
@@ -419,6 +502,15 @@ class TaskSession:
         )
         self.recent_test_failures = self.recent_test_failures[-2:]
 
+    def _mark_repo_state_mutated(self, tool_name: str) -> None:
+        self.repo_state_revision += 1
+        self.latest_successful_test = None
+        self._record(
+            "repo_state_mutated",
+            tool_name=tool_name,
+            repo_state_revision=self.repo_state_revision,
+        )
+
     def _resolve_repo_path(self, relative_path: str) -> Path:
         candidate = (self.repo_path / relative_path).resolve()
         try:
@@ -428,3 +520,61 @@ class TaskSession:
                 "Path escapes the repo root: {0}".format(relative_path)
             ) from exc
         return candidate
+
+    def _validate_repo_file_path(
+        self, relative_path: str, *, tool_name: str, must_exist: bool
+    ) -> Optional[str]:
+        try:
+            candidate = self._resolve_repo_path(relative_path)
+        except ValueError as exc:
+            return "Model selected a path outside the repo root for {0}: {1}".format(
+                tool_name, exc
+            )
+
+        if candidate.exists():
+            if candidate.is_dir():
+                suggestion = self._suggest_file_inside(candidate)
+                message = (
+                    "Model selected a directory path for {0}: {1}.".format(
+                        tool_name, relative_path
+                    )
+                )
+                if suggestion:
+                    message += " Choose a file path such as {0}.".format(suggestion)
+                return message
+            return None
+
+        if must_exist:
+            message = "Model selected a missing repo file for {0}: {1}.".format(
+                tool_name, relative_path
+            )
+            suggestion = self._suggest_existing_file_near(candidate)
+            if suggestion:
+                message += " Choose an existing file path such as {0}.".format(
+                    suggestion
+                )
+            return message
+        return None
+
+    def _suggest_file_inside(self, directory: Path) -> Optional[str]:
+        for candidate in sorted(directory.rglob("*")):
+            if candidate.is_file():
+                return str(candidate.relative_to(self.repo_path))
+        return None
+
+    def _suggest_existing_file_near(self, candidate: Path) -> Optional[str]:
+        parent = candidate.parent
+        if parent.exists() and parent.is_dir():
+            for sibling in sorted(parent.iterdir()):
+                if sibling.is_file():
+                    return str(sibling.relative_to(self.repo_path))
+
+        for nearby in sorted(self.repo_path.rglob("*")):
+            if nearby.is_file():
+                return str(nearby.relative_to(self.repo_path))
+        return None
+
+    def _has_recent_file_context(self, relative_path: str) -> bool:
+        return any(
+            item.relative_path == relative_path for item in self.recent_file_contexts
+        )

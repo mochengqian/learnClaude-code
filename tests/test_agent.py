@@ -3,7 +3,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from repo_task_runtime import AgentRunner, ModelResponse, TaskWorkbench, TodoItem, TodoStatus
+from repo_task_runtime import (
+    AgentRunner,
+    FileReadRequest,
+    ModelResponse,
+    TaskWorkbench,
+    TestCommandRequest,
+    TodoItem,
+    TodoStatus,
+)
 
 
 def init_git_repo(repo_path: Path) -> None:
@@ -27,6 +35,15 @@ def init_git_repo(repo_path: Path) -> None:
         cwd=str(repo_path),
         check=True,
         capture_output=True,
+    )
+    tests_dir = repo_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_smoke.py").write_text(
+        "import unittest\n\n"
+        "class SmokeTest(unittest.TestCase):\n"
+        "    def test_smoke(self):\n"
+        "        self.assertTrue(True)\n",
+        encoding="utf-8",
     )
 
 
@@ -95,6 +112,8 @@ class AgentRunnerTest(unittest.TestCase):
         session.update_plan("1. Inspect\n2. Fix\n3. Test")
         session.approve_plan()
         self.seed_todos(session)
+        read_result = session.request_tool(FileReadRequest(relative_path="README.md"))
+        self.assertEqual("executed", read_result.status)
         runner = AgentRunner(
             FakeModelClient(
                 [
@@ -157,6 +176,12 @@ class AgentRunnerTest(unittest.TestCase):
         session.update_plan("1. Inspect\n2. Fix\n3. Test")
         session.approve_plan()
         self.seed_todos(session)
+        test_result = session.request_tool(
+            TestCommandRequest(
+                command=("python3", "-m", "unittest", "discover", "-s", "tests", "-v")
+            )
+        )
+        self.assertEqual(0, test_result.exit_code)
         runner = AgentRunner(
             FakeModelClient(
                 [
@@ -175,6 +200,180 @@ class AgentRunnerTest(unittest.TestCase):
         self.assertEqual("completed", session.todos[0].status.value)
         self.assertEqual("pending", session.todos[1].status.value)
         self.assertEqual("pending", session.todos[2].status.value)
+
+    def test_run_next_step_retries_invalid_tool_request_once(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        session.update_plan("1. Inspect\n2. Fix\n3. Test")
+        session.approve_plan()
+        self.seed_todos(session)
+        runner = AgentRunner(
+            FakeModelClient(
+                [
+                    (
+                        '{"summary":"Read the file first.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{"tool_type":"read_file"}}'
+                    ),
+                    (
+                        '{"summary":"Read the README first.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{"tool_type":"read_file","relative_path":"README.md"}}'
+                    ),
+                ]
+            )
+        )
+
+        outcome = runner.run_next_step(session)
+
+        self.assertEqual("request_tool", outcome.decision.action)
+        self.assertEqual("executed", outcome.tool_result.status)
+        self.assertEqual("read_file", outcome.tool_result.tool_name)
+        event_types = [event.event_type for event in session.timeline]
+        self.assertIn("agent_step_output_invalid", event_types)
+        self.assertIn("agent_step_output_retry_requested", event_types)
+        self.assertIn("agent_step_output_repaired", event_types)
+
+    def test_finish_without_successful_test_is_repaired_into_run_test(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        session.update_plan("1. Inspect\n2. Fix\n3. Test")
+        session.approve_plan()
+        self.seed_todos(session)
+        runner = AgentRunner(
+            FakeModelClient(
+                [
+                    '{"summary":"The task is done.","action":"finish"}',
+                    (
+                        '{"summary":"Run local tests before finishing.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{'
+                        '"tool_type":"run_test",'
+                        '"command":["python3","-m","unittest","discover","-s","tests","-v"]'
+                        "}}"
+                    ),
+                ]
+            )
+        )
+
+        outcome = runner.run_next_step(session)
+
+        self.assertEqual("request_tool", outcome.decision.action)
+        self.assertEqual("executed", outcome.tool_result.status)
+        self.assertEqual("run_test", outcome.tool_result.tool_name)
+        self.assertEqual(0, outcome.tool_result.exit_code)
+        self.assertTrue(session.has_successful_test_for_current_state())
+        event_types = [event.event_type for event in session.timeline]
+        self.assertIn("agent_step_output_invalid", event_types)
+        self.assertIn("agent_step_output_repaired", event_types)
+
+    def test_run_next_step_retries_directory_path_once(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        session.update_plan("1. Inspect\n2. Fix\n3. Test")
+        session.approve_plan()
+        self.seed_todos(session)
+        runner = AgentRunner(
+            FakeModelClient(
+                [
+                    (
+                        '{"summary":"Inspect the tests directory.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{"tool_type":"read_file","relative_path":"tests"}}'
+                    ),
+                    (
+                        '{"summary":"Read the README first.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{"tool_type":"read_file","relative_path":"README.md"}}'
+                    ),
+                ]
+            )
+        )
+
+        outcome = runner.run_next_step(session)
+
+        self.assertEqual("request_tool", outcome.decision.action)
+        self.assertEqual("executed", outcome.tool_result.status)
+        self.assertEqual("read_file", outcome.tool_result.tool_name)
+        event_payloads = [
+            event.payload for event in session.timeline if event.event_type == "agent_step_output_invalid"
+        ]
+        self.assertTrue(
+            any("directory path for read_file" in payload.get("error", "") for payload in event_payloads)
+        )
+
+    def test_run_next_step_retries_file_patch_without_recent_read(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        session.update_plan("1. Inspect\n2. Fix\n3. Test")
+        session.approve_plan()
+        self.seed_todos(session)
+        runner = AgentRunner(
+            FakeModelClient(
+                [
+                    (
+                        '{"summary":"Patch the README directly.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{'
+                        '"tool_type":"file_patch",'
+                        '"relative_path":"README.md",'
+                        '"expected_old_snippet":"hello\\n",'
+                        '"new_snippet":"hello\\nfixed\\n"'
+                        "}}"
+                    ),
+                    (
+                        '{"summary":"Read the README first.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{"tool_type":"read_file","relative_path":"README.md"}}'
+                    ),
+                ]
+            )
+        )
+
+        outcome = runner.run_next_step(session)
+
+        self.assertEqual("request_tool", outcome.decision.action)
+        self.assertEqual("executed", outcome.tool_result.status)
+        self.assertEqual("read_file", outcome.tool_result.tool_name)
+        event_payloads = [
+            event.payload for event in session.timeline if event.event_type == "agent_step_output_invalid"
+        ]
+        self.assertTrue(
+            any(
+                "edit without recent file context for file_patch" in payload.get("error", "")
+                for payload in event_payloads
+            )
+        )
+
+    def test_run_next_step_allows_file_patch_after_recent_read(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        session.update_plan("1. Inspect\n2. Fix\n3. Test")
+        session.approve_plan()
+        self.seed_todos(session)
+        read_result = session.request_tool(FileReadRequest(relative_path="README.md"))
+        self.assertEqual("executed", read_result.status)
+        runner = AgentRunner(
+            FakeModelClient(
+                [
+                    (
+                        '{"summary":"Patch the README after reading it.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{'
+                        '"tool_type":"file_patch",'
+                        '"relative_path":"README.md",'
+                        '"expected_old_snippet":"hello\\n",'
+                        '"new_snippet":"hello\\nfixed\\n"'
+                        "}}"
+                    )
+                ]
+            )
+        )
+
+        outcome = runner.run_next_step(session)
+
+        self.assertEqual("request_tool", outcome.decision.action)
+        self.assertEqual("approval_required", outcome.tool_result.status)
 
     def test_run_loop_stops_when_approval_is_required(self):
         temp_dir, session = self.make_session()

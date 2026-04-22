@@ -65,6 +65,11 @@ class ContextBundleBuilder:
             ],
             "latest_diff": _truncate_text(snapshot.latest_diff, limit=self.max_diff_chars),
             "latest_tool_result": _compact_tool_result(snapshot.latest_tool_result),
+            "latest_successful_test": (
+                snapshot.latest_successful_test.to_dict()
+                if snapshot.latest_successful_test
+                else None
+            ),
             "recent_timeline": recent_timeline,
             "recent_file_contexts": recent_file_contexts,
             "recent_test_failures": recent_test_failures,

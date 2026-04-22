@@ -326,6 +326,12 @@ python3 scripts/run_eval.py \
 
 - `approval_required`
 - `bad_patch`
+- `directory_path`
+- `edit_without_read`
+- `invalid_finish`
+- `invalid_model_output`
+- `missing_relative_path`
+- `missing_repo_file`
 - `tool_failed`
 - `tool_blocked`
 - `max_steps_reached`
