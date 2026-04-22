@@ -4,3 +4,5 @@ __pycache__/
 .pytest_cache/
 # Raw eval artifacts stay local; checkpoints update artifacts/eval/BASELINE.md instead.
 artifacts/eval/*.json
+# Local writing drafts stay local until promoted into stable project docs.
+docs/*-draft.md

@@ -77,12 +77,14 @@ Case outcomes:
 - `clamp_lower_bound`: `FAIL`, stop=`approval_required`, failure=`approval_required`
 - `compact_whitespace`: `FAIL`, stop=`approval_required`, failure=`approval_required`
 
-## Transport Retry Working Baseline (2026-04-22)
+## Transport Retry Checkpoint (2026-04-22)
 
-- Commit: `68a030e + working tree`
+- Commit: `8188058`
 - Model: `RightCode / gpt-5.4-mini`
-- Eval command source: `artifacts/eval/rightcode-gpt-5.4-mini-auto_approve_edits.json`
-- Notes: `This update only syncs the bounded transport retry/classify change. auto_approve_edits reached 3/3 in the latest run; stop_on_request was not rerun in this update.`
+- Eval command source:
+  - `artifacts/eval/rightcode-gpt-5.4-mini-auto_approve_edits.json`
+  - `artifacts/eval/rightcode-gpt-5.4-mini-stop_on_request.json`
+- Notes: `Bounded transport retry/classify landed in the checkpoint. auto_approve_edits recovered to 3/3, and stop_on_request still halts exactly at approval_required as intended.`
 
 ### auto_approve_edits
 
@@ -99,5 +101,13 @@ Case outcomes:
 
 ### stop_on_request
 
-- Status: `not rerun in this update`
-- Last recorded baseline: `M1 Checkpoint`
+- Passed: `0/3`
+- Average steps: `4.33`
+- Average duplicate reads: `0.33`
+- Cases with same-file rereads: `1`
+- Failure reasons: `{"approval_required": 3}`
+
+Case outcomes:
+- `slug_join`: `FAIL`, stop=`approval_required`, failure=`approval_required`
+- `clamp_lower_bound`: `FAIL`, stop=`approval_required`, failure=`approval_required`
+- `compact_whitespace`: `FAIL`, stop=`approval_required`, failure=`approval_required`
