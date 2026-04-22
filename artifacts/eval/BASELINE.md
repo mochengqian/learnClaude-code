@@ -111,3 +111,38 @@ Case outcomes:
 - `slug_join`: `FAIL`, stop=`approval_required`, failure=`approval_required`
 - `clamp_lower_bound`: `FAIL`, stop=`approval_required`, failure=`approval_required`
 - `compact_whitespace`: `FAIL`, stop=`approval_required`, failure=`approval_required`
+
+## Read Focus Hardening Checkpoint (2026-04-22)
+
+- Commit: `bf43680`
+- Model: `RightCode / gpt-5.4-mini`
+- Eval command source:
+  - `artifacts/eval/rightcode-gpt-5.4-mini-auto_approve_edits.json`
+  - `artifacts/eval/rightcode-gpt-5.4-mini-stop_on_request.json`
+- Notes: `Read-focus hardening removed duplicate rereads in both approval modes. The remaining failures moved to non-reread issues: one bad patch path choice under auto_approve_edits and one edit_without_read miss under stop_on_request.`
+
+### auto_approve_edits
+
+- Passed: `2/3`
+- Average steps: `6.0`
+- Average duplicate reads: `0.0`
+- Cases with same-file rereads: `0`
+- Failure reasons: `{"tool_failed": 1}`
+
+Case outcomes:
+- `slug_join`: `PASS`, stop=`finished`, failure=`-`
+- `clamp_lower_bound`: `FAIL`, stop=`tool_failed`, failure=`tool_failed`
+- `compact_whitespace`: `PASS`, stop=`finished`, failure=`-`
+
+### stop_on_request
+
+- Passed: `0/3`
+- Average steps: `2.67`
+- Average duplicate reads: `0.0`
+- Cases with same-file rereads: `0`
+- Failure reasons: `{"approval_required": 2, "edit_without_read": 1}`
+
+Case outcomes:
+- `slug_join`: `FAIL`, stop=`approval_required`, failure=`approval_required`
+- `clamp_lower_bound`: `FAIL`, stop=`runner_failed`, failure=`edit_without_read`
+- `compact_whitespace`: `FAIL`, stop=`approval_required`, failure=`approval_required`
