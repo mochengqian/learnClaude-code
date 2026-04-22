@@ -302,6 +302,52 @@ class AgentRunnerTest(unittest.TestCase):
             any("directory path for read_file" in payload.get("error", "") for payload in event_payloads)
         )
 
+    def test_run_next_step_grants_directory_path_second_chance_repair(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        session.update_plan("1. Inspect\n2. Fix\n3. Test")
+        session.approve_plan()
+        self.seed_todos(session)
+        runner = AgentRunner(
+            FakeModelClient(
+                [
+                    (
+                        '{"summary":"Inspect the tests directory.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{"tool_type":"read_file","relative_path":"tests"}}'
+                    ),
+                    (
+                        '{"summary":"Inspect the repo root.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{"tool_type":"read_file","relative_path":"."}}'
+                    ),
+                    (
+                        '{"summary":"Read the test file directly.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{"tool_type":"read_file","relative_path":"tests/test_smoke.py"}}'
+                    ),
+                ]
+            )
+        )
+
+        outcome = runner.run_next_step(session)
+
+        self.assertEqual("request_tool", outcome.decision.action)
+        self.assertEqual("executed", outcome.tool_result.status)
+        self.assertEqual("read_file", outcome.tool_result.tool_name)
+        self.assertEqual("tests/test_smoke.py", outcome.tool_result.data["relative_path"])
+        event_types = [event.event_type for event in session.timeline]
+        self.assertIn(
+            "agent_step_output_directory_path_second_chance_requested",
+            event_types,
+        )
+        event_payloads = [
+            event.payload
+            for event in session.timeline
+            if event.event_type == "agent_step_output_retry_requested"
+        ]
+        self.assertEqual(2, len(event_payloads))
+
     def test_run_next_step_retries_file_patch_without_recent_read(self):
         temp_dir, session = self.make_session()
         self.addCleanup(temp_dir.cleanup)
@@ -375,6 +421,55 @@ class AgentRunnerTest(unittest.TestCase):
         self.assertEqual("request_tool", outcome.decision.action)
         self.assertEqual("approval_required", outcome.tool_result.status)
 
+    def test_run_next_step_retries_readme_reread_once(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        session.update_plan("1. Inspect\n2. Fix\n3. Test")
+        session.approve_plan()
+        self.seed_todos(session)
+        source_dir = session.repo_path / "demo_app"
+        source_dir.mkdir()
+        (source_dir / "string_tools.py").write_text(
+            'def slugify_title(value: str) -> str:\n    return value.replace(" ", "_")\n',
+            encoding="utf-8",
+        )
+        read_result = session.request_tool(FileReadRequest(relative_path="README.md"))
+        self.assertEqual("executed", read_result.status)
+        runner = AgentRunner(
+            FakeModelClient(
+                [
+                    (
+                        '{"summary":"Read the README again before editing.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{"tool_type":"read_file","relative_path":"README.md"}}'
+                    ),
+                    (
+                        '{"summary":"Read the slug helper instead.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{"tool_type":"read_file","relative_path":"demo_app/string_tools.py"}}'
+                    ),
+                ]
+            )
+        )
+
+        outcome = runner.run_next_step(session)
+
+        self.assertEqual("request_tool", outcome.decision.action)
+        self.assertEqual("executed", outcome.tool_result.status)
+        self.assertEqual("read_file", outcome.tool_result.tool_name)
+        self.assertEqual(
+            "demo_app/string_tools.py",
+            outcome.tool_result.data["relative_path"],
+        )
+        event_payloads = [
+            event.payload
+            for event in session.timeline
+            if event.event_type == "agent_step_output_invalid"
+        ]
+        self.assertTrue(
+            any("rereading README.md" in payload.get("error", "") for payload in event_payloads)
+        )
+
     def test_run_loop_stops_when_approval_is_required(self):
         temp_dir, session = self.make_session()
         self.addCleanup(temp_dir.cleanup)
@@ -431,9 +526,9 @@ class AgentRunnerTest(unittest.TestCase):
                         '"tool_request":{"tool_type":"read_file","relative_path":"README.md"}}'
                     ),
                     (
-                        '{"summary":"Read the README again.",'
+                        '{"summary":"Read the test file next.",'
                         '"action":"request_tool",'
-                        '"tool_request":{"tool_type":"read_file","relative_path":"README.md"}}'
+                        '"tool_request":{"tool_type":"read_file","relative_path":"tests/test_smoke.py"}}'
                     ),
                 ]
             )

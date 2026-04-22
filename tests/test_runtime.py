@@ -203,6 +203,48 @@ class TaskRuntimeTest(unittest.TestCase):
         self.assertFalse(session.has_successful_test_for_current_state())
         self.assertIsNone(session.snapshot().latest_successful_test)
 
+    def test_missing_path_suggestion_prefers_source_file_over_readme(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        source_dir = session.repo_path / "demo_app"
+        source_dir.mkdir()
+        (source_dir / "string_tools.py").write_text(
+            "def slugify_title(value: str) -> str:\n    return value\n",
+            encoding="utf-8",
+        )
+        tests_dir = session.repo_path / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_string_tools.py").write_text(
+            "def test_placeholder() -> None:\n    assert True\n",
+            encoding="utf-8",
+        )
+
+        message = session.validate_tool_request_path(
+            FileReadRequest(relative_path="slugify.py")
+        )
+
+        self.assertIsNotNone(message)
+        self.assertIn("demo_app/string_tools.py", message)
+        self.assertNotIn("README.md", message)
+
+    def test_directory_path_suggestion_prefers_file_inside_directory(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        tests_dir = session.repo_path / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_string_tools.py").write_text(
+            "def test_placeholder() -> None:\n    assert True\n",
+            encoding="utf-8",
+        )
+
+        message = session.validate_tool_request_path(
+            FileReadRequest(relative_path="tests")
+        )
+
+        self.assertIsNotNone(message)
+        self.assertIn("tests/test_string_tools.py", message)
+        self.assertNotIn("README.md", message)
+
     def test_begin_task_resets_previous_task_state(self):
         temp_dir, session = self.make_session()
         self.addCleanup(temp_dir.cleanup)

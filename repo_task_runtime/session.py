@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 from typing import Dict, Iterable, List, Optional
 from uuid import uuid4
 
@@ -27,6 +28,26 @@ from .models import (
     tool_name_for_request,
 )
 import subprocess
+
+
+_CODE_FILE_SUFFIXES = {
+    ".c",
+    ".cc",
+    ".cpp",
+    ".go",
+    ".h",
+    ".hpp",
+    ".java",
+    ".js",
+    ".jsx",
+    ".py",
+    ".rb",
+    ".rs",
+    ".ts",
+    ".tsx",
+}
+_SOURCE_ROOT_NAMES = {"app", "demo_app", "lib", "pkg", "src"}
+_TEST_ROOT_NAMES = {"test", "tests"}
 
 
 class TaskSession:
@@ -250,6 +271,28 @@ class TaskSession:
             )
 
         return None
+
+    def validate_tool_request_read_focus(
+        self, request: ToolInvocationRequest
+    ) -> Optional[str]:
+        if not isinstance(request, FileReadRequest):
+            return None
+        if not self._is_readme_path(request.relative_path):
+            return None
+        if self._count_executed_reads(request.relative_path) < 1:
+            return None
+
+        suggestion = self._best_repo_file_suggestion(
+            requested_path=self._resolve_repo_path(request.relative_path),
+            search_root=self.repo_path,
+            include_readme=False,
+        )
+        if suggestion is None:
+            return None
+        return (
+            "Model is rereading {0} after it was already read. "
+            "Read a more task-relevant file such as {1} instead."
+        ).format(request.relative_path, suggestion)
 
     def _execute_request(
         self, request: ToolInvocationRequest, approved_by: Optional[str]
@@ -557,22 +600,145 @@ class TaskSession:
         return None
 
     def _suggest_file_inside(self, directory: Path) -> Optional[str]:
-        for candidate in sorted(directory.rglob("*")):
-            if candidate.is_file():
-                return str(candidate.relative_to(self.repo_path))
-        return None
+        return self._best_repo_file_suggestion(
+            requested_path=directory,
+            search_root=directory,
+            include_readme=False,
+        )
 
     def _suggest_existing_file_near(self, candidate: Path) -> Optional[str]:
         parent = candidate.parent
+        search_root = self.repo_path
         if parent.exists() and parent.is_dir():
-            for sibling in sorted(parent.iterdir()):
-                if sibling.is_file():
-                    return str(sibling.relative_to(self.repo_path))
+            search_root = parent
+        return self._best_repo_file_suggestion(
+            requested_path=candidate,
+            search_root=search_root,
+            include_readme=False,
+        )
 
-        for nearby in sorted(self.repo_path.rglob("*")):
-            if nearby.is_file():
-                return str(nearby.relative_to(self.repo_path))
-        return None
+    def _best_repo_file_suggestion(
+        self,
+        *,
+        requested_path: Path,
+        search_root: Path,
+        include_readme: bool,
+    ) -> Optional[str]:
+        candidates = self._collect_suggestable_files(
+            search_root,
+            include_readme=include_readme,
+        )
+        if not candidates and search_root != self.repo_path:
+            candidates = self._collect_suggestable_files(
+                self.repo_path,
+                include_readme=include_readme,
+            )
+        if not candidates and not include_readme:
+            return self._best_repo_file_suggestion(
+                requested_path=requested_path,
+                search_root=search_root,
+                include_readme=True,
+            )
+        if not candidates:
+            return None
+
+        best = min(
+            candidates,
+            key=lambda path: self._suggestion_sort_key(
+                path,
+                requested_path=requested_path,
+            ),
+        )
+        return str(best.relative_to(self.repo_path))
+
+    def _collect_suggestable_files(
+        self, search_root: Path, *, include_readme: bool
+    ) -> List[Path]:
+        files: List[Path] = []
+        for candidate in sorted(search_root.rglob("*")):
+            if not candidate.is_file():
+                continue
+            try:
+                relative_path = candidate.relative_to(self.repo_path)
+            except ValueError:
+                continue
+            if self._is_hidden_relative_path(relative_path):
+                continue
+            if not include_readme and self._is_readme_path(str(relative_path)):
+                continue
+            files.append(candidate)
+        return files
+
+    def _suggestion_sort_key(
+        self, candidate: Path, *, requested_path: Path
+    ) -> tuple[object, ...]:
+        relative_path = candidate.relative_to(self.repo_path)
+        relative_text = relative_path.as_posix()
+        shared_tokens = len(
+            self._path_tokens(self._path_text_for_matching(requested_path))
+            & self._path_tokens(relative_text)
+        )
+        return (
+            0 if shared_tokens else 1,
+            -shared_tokens,
+            self._file_kind_rank(relative_path),
+            0 if self._has_recent_file_context(relative_text) else 1,
+            1 if relative_path.name == "__init__.py" else 0,
+            1 if self._is_readme_path(relative_text) else 0,
+            len(relative_path.parts),
+            relative_text,
+        )
+
+    def _file_kind_rank(self, relative_path: Path) -> int:
+        if not self._is_code_like_file(relative_path):
+            return 3
+
+        first_part = ""
+        if relative_path.parts:
+            first_part = relative_path.parts[0].lower()
+        if first_part in _SOURCE_ROOT_NAMES:
+            return 0
+        if first_part in _TEST_ROOT_NAMES or relative_path.name.startswith("test_"):
+            return 1
+        return 2
+
+    def _is_code_like_file(self, relative_path: Path) -> bool:
+        return relative_path.suffix.lower() in _CODE_FILE_SUFFIXES
+
+    def _is_hidden_relative_path(self, relative_path: Path) -> bool:
+        return any(part.startswith(".") for part in relative_path.parts)
+
+    def _is_readme_path(self, relative_path: str) -> bool:
+        return Path(relative_path).name.lower() == "readme.md"
+
+    def _count_executed_reads(self, relative_path: str) -> int:
+        normalized_path = Path(relative_path).as_posix().lower()
+        count = 0
+        for event in self.timeline:
+            if event.event_type != "tool_executed":
+                continue
+            if event.payload.get("tool_name") != "read_file":
+                continue
+            request = event.payload.get("request") or {}
+            request_path = str(request.get("relative_path") or "").strip()
+            if not request_path:
+                continue
+            if Path(request_path).as_posix().lower() == normalized_path:
+                count += 1
+        return count
+
+    def _path_text_for_matching(self, path: Path) -> str:
+        try:
+            return path.relative_to(self.repo_path).as_posix()
+        except ValueError:
+            return path.as_posix()
+
+    def _path_tokens(self, value: str) -> set[str]:
+        return {
+            token
+            for token in re.split(r"[^a-z0-9]+", value.lower())
+            if len(token) >= 2
+        }
 
     def _has_recent_file_context(self, relative_path: str) -> bool:
         return any(

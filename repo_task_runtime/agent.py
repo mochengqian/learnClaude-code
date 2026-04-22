@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from .context_bundle import ContextBundleBuilder
@@ -62,6 +63,7 @@ Rules:
 - Choose exactly one next action.
 - Respect the current plan and todos.
 - Prefer read_file before file_patch or write_file.
+- Read README.md at most once; after the first pass, inspect code or tests instead of rereading it.
 - Prefer file_patch for small, localized edits.
 - write_file must contain the full file contents, not a patch.
 - Use write_file mainly for new files or full rewrites.
@@ -218,8 +220,9 @@ class AgentRunner:
         self, session: TaskSession, prompt_context: Dict[str, Any]
     ) -> Tuple[Any, Dict[str, Any]]:
         current_prompt_context = prompt_context
+        remaining_directory_path_second_chances = 1
 
-        for attempt in range(self.max_output_retries + 1):
+        for attempt in range(self.max_output_retries + 2):
             response = self.model_client.complete(
                 system_prompt=_STEP_SYSTEM_PROMPT,
                 user_prompt=json.dumps(
@@ -236,8 +239,22 @@ class AgentRunner:
                     attempt=attempt + 1,
                     error=str(exc),
                 )
-                if attempt >= self.max_output_retries:
+                standard_retry_available = attempt < self.max_output_retries
+                directory_path_second_chance = (
+                    not standard_retry_available
+                    and remaining_directory_path_second_chances > 0
+                    and self._is_directory_path_error(str(exc))
+                )
+                if not standard_retry_available and not directory_path_second_chance:
                     raise
+                if directory_path_second_chance:
+                    remaining_directory_path_second_chances -= 1
+                    session.record_event(
+                        "agent_step_output_directory_path_second_chance_requested",
+                        model=response.model,
+                        attempt=attempt + 1,
+                        error=str(exc),
+                    )
                 session.record_event(
                     "agent_step_output_retry_requested",
                     model=response.model,
@@ -278,6 +295,9 @@ class AgentRunner:
                     "Return corrected JSON only using the required runtime schema. "
                     "If finish is blocked, choose the next request_tool action instead."
                 ),
+                "directory_path_repair": self._build_directory_path_repair(
+                    validation_error
+                ),
             },
         }
 
@@ -303,6 +323,9 @@ class AgentRunner:
             path_error = session.validate_tool_request_path(tool_request)
             if path_error:
                 raise ModelClientError(path_error)
+            read_focus_error = session.validate_tool_request_read_focus(tool_request)
+            if read_focus_error:
+                raise ModelClientError(read_focus_error)
             edit_context_error = session.validate_tool_request_edit_context(tool_request)
             if edit_context_error:
                 raise ModelClientError(edit_context_error)
@@ -327,6 +350,39 @@ class AgentRunner:
             raise ValueError("Approve the plan before asking the agent to take the next step.")
         if session.pending_approvals:
             raise ValueError("Resolve pending approvals before asking for another agent step.")
+
+    def _is_directory_path_error(self, validation_error: str) -> bool:
+        return "directory path for" in validation_error.lower()
+
+    def _build_directory_path_repair(
+        self, validation_error: str
+    ) -> Optional[Dict[str, Any]]:
+        if not self._is_directory_path_error(validation_error):
+            return None
+
+        suggested_relative_path = None
+        match = re.search(
+            r"Choose a file path such as ([^.\n]+(?:\.[^.\n]+)+)\.",
+            validation_error,
+        )
+        if match:
+            suggested_relative_path = match.group(1).strip()
+
+        instruction = (
+            "The previous tool_request used a directory path. "
+            "Return the same JSON schema, but replace relative_path with an existing "
+            "file path inside the repo. Do not return a directory path again."
+        )
+        if suggested_relative_path:
+            instruction += (
+                " Prefer this exact existing file path if it fits the task: {0}."
+            ).format(suggested_relative_path)
+
+        return {
+            "must_choose_file_path": True,
+            "suggested_relative_path": suggested_relative_path,
+            "instruction": instruction,
+        }
 
 
 def _parse_json_object(raw_text: str) -> Dict[str, Any]:
