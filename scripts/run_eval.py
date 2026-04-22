@@ -48,6 +48,10 @@ def main() -> int:
         action="store_true",
         help="Print the eval suite report as JSON.",
     )
+    parser.add_argument(
+        "--output-json",
+        help="Write the eval suite report JSON to a file. Parent directories are created automatically.",
+    )
     args = parser.parse_args()
 
     cases = builtin_eval_cases()
@@ -74,9 +78,21 @@ def main() -> int:
         max_steps_override=args.max_steps,
     )
     report = runner.run_cases(cases)
+    report_payload = report.to_dict()
 
     if args.json:
-        print(json.dumps(report.to_dict(), indent=2, ensure_ascii=False))
+        print(json.dumps(report_payload, indent=2, ensure_ascii=False))
+
+    if args.output_json:
+        output_path = Path(args.output_json).resolve()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(
+            json.dumps(report_payload, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        print("Wrote eval report to {0}".format(output_path))
+
+    if args.json:
         return 0
 
     print(

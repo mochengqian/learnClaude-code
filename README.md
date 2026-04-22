@@ -295,6 +295,16 @@ python3 scripts/run_eval.py --approval-mode stop_on_request
 python3 scripts/run_eval.py --case slug_join --case clamp_lower_bound
 ```
 
+如果你要把结果沉淀成后续可对比的本地 artifact：
+
+```bash
+python3 scripts/run_eval.py \
+  --approval-mode auto_approve_edits \
+  --output-json artifacts/eval/rightcode-gpt-5.4-mini-auto_approve_edits.json
+```
+
+`run_eval.py` 会自动创建父目录，适合后续把不同模型、不同 approval 模式的基线结果都落成一组稳定 JSON。
+
 当前输出除了通过率和失败原因，还开始补上 `context bundle` 的效果代理指标：
 
 - 通过 / 失败数量
