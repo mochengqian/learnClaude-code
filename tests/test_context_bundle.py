@@ -130,6 +130,38 @@ class ContextBundleTest(unittest.TestCase):
         self.assertEqual([], bundle["recent_test_failures"])
         self.assertEqual(0, bundle["latest_successful_test"]["exit_code"])
 
+    def test_builder_includes_read_focus_guidance_after_recent_read(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+
+        read_result = session.request_tool(
+            FileReadRequest(relative_path="demo_app/app.py")
+        )
+        self.assertEqual("executed", read_result.status)
+
+        bundle = ContextBundleBuilder().build(session)
+
+        self.assertEqual(
+            ["demo_app/app.py"],
+            bundle["read_focus"]["recent_context_paths"],
+        )
+        self.assertEqual(
+            ["demo_app/app.py"],
+            bundle["read_focus"]["avoid_reread_paths"],
+        )
+        self.assertEqual(
+            "demo_app/app.py",
+            bundle["read_focus"]["primary_target_path"],
+        )
+        self.assertEqual(
+            "patch_or_test",
+            bundle["read_focus"]["preferred_next_action"],
+        )
+        self.assertIn(
+            "recent_file_contexts",
+            bundle["read_focus"]["instruction"],
+        )
+
     def test_agent_step_prompt_includes_context_bundle(self):
         temp_dir, session = self.make_session()
         self.addCleanup(temp_dir.cleanup)
@@ -160,6 +192,11 @@ class ContextBundleTest(unittest.TestCase):
         self.assertEqual("demo_app/app.py", snapshot["recent_file_contexts"][0]["relative_path"])
         self.assertEqual(1, snapshot["recent_test_failures"][0]["exit_code"])
         self.assertIsNone(snapshot["latest_successful_test"])
+        self.assertEqual(
+            "inspect_test_failure",
+            snapshot["read_focus"]["preferred_next_action"],
+        )
+        self.assertEqual([], snapshot["read_focus"]["avoid_reread_paths"])
 
 
 if __name__ == "__main__":

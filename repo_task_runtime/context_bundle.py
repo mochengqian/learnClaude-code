@@ -30,6 +30,7 @@ class ContextBundleBuilder:
             event.to_dict()
             for event in list(snapshot.timeline)[-self.max_recent_timeline_events :]
         ]
+        read_focus = session.build_read_focus_snapshot()
         recent_file_contexts = [
             {
                 "relative_path": item.relative_path,
@@ -70,6 +71,7 @@ class ContextBundleBuilder:
                 if snapshot.latest_successful_test
                 else None
             ),
+            "read_focus": read_focus,
             "recent_timeline": recent_timeline,
             "recent_file_contexts": recent_file_contexts,
             "recent_test_failures": recent_test_failures,

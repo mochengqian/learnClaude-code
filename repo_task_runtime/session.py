@@ -277,22 +277,84 @@ class TaskSession:
     ) -> Optional[str]:
         if not isinstance(request, FileReadRequest):
             return None
-        if not self._is_readme_path(request.relative_path):
-            return None
-        if self._count_executed_reads(request.relative_path) < 1:
+        if self._is_readme_path(request.relative_path):
+            if self._count_executed_reads(request.relative_path) < 1:
+                return None
+            suggestion = self._best_repo_file_suggestion(
+                requested_path=self._resolve_repo_path(request.relative_path),
+                search_root=self.repo_path,
+                include_readme=False,
+            )
+            if suggestion is None:
+                return None
+            return (
+                "Model is rereading {0} after it was already read. "
+                "Read a more task-relevant file such as {1} instead."
+            ).format(request.relative_path, suggestion)
+
+        if not self._should_block_same_file_reread(request.relative_path):
             return None
 
-        suggestion = self._best_repo_file_suggestion(
-            requested_path=self._resolve_repo_path(request.relative_path),
-            search_root=self.repo_path,
-            include_readme=False,
-        )
-        if suggestion is None:
-            return None
         return (
-            "Model is rereading {0} after it was already read. "
-            "Read a more task-relevant file such as {1} instead."
-        ).format(request.relative_path, suggestion)
+            "Model is rereading {0} even though recent context for that file is "
+            "already available. Use recent_file_contexts and continue with "
+            "file_patch/write_file or run_test instead of reading the same file again."
+        ).format(request.relative_path)
+
+    def build_read_focus_snapshot(self) -> Dict[str, object]:
+        recent_context_paths = [
+            item.relative_path for item in self.recent_file_contexts
+        ]
+        primary_target_path = next(
+            (
+                path
+                for path in reversed(recent_context_paths)
+                if not self._is_readme_path(path)
+            ),
+            recent_context_paths[-1] if recent_context_paths else None,
+        )
+
+        avoid_reread_paths: List[str] = []
+        preferred_next_action = "gather_context"
+        instruction = (
+            "Read task-relevant files first, then move to patching or tests."
+        )
+
+        if self.pending_approvals:
+            preferred_next_action = "await_approval"
+            instruction = (
+                "An approval is pending. Resolve the approval before requesting "
+                "additional file reads."
+            )
+        elif self.recent_test_failures:
+            preferred_next_action = "inspect_test_failure"
+            instruction = (
+                "A local test is failing. Use recent_test_failures and existing "
+                "recent_file_contexts before rereading files."
+            )
+        elif self.has_successful_test_for_current_state():
+            avoid_reread_paths = list(recent_context_paths)
+            preferred_next_action = "finish"
+            instruction = (
+                "The current repo state already passed local tests. Finish instead "
+                "of rereading files."
+            )
+        elif recent_context_paths:
+            avoid_reread_paths = list(recent_context_paths)
+            preferred_next_action = "patch_or_test"
+            instruction = (
+                "Recent file context is already available. Use "
+                "recent_file_contexts instead of rereading these files, then prefer "
+                "file_patch/write_file or run_test."
+            )
+
+        return {
+            "recent_context_paths": recent_context_paths,
+            "avoid_reread_paths": avoid_reread_paths,
+            "primary_target_path": primary_target_path,
+            "preferred_next_action": preferred_next_action,
+            "instruction": instruction,
+        }
 
     def _execute_request(
         self, request: ToolInvocationRequest, approved_by: Optional[str]
@@ -829,3 +891,10 @@ class TaskSession:
         return any(
             item.relative_path == relative_path for item in self.recent_file_contexts
         )
+
+    def _should_block_same_file_reread(self, relative_path: str) -> bool:
+        if not self._has_recent_file_context(relative_path):
+            return False
+        if self.recent_test_failures:
+            return False
+        return True

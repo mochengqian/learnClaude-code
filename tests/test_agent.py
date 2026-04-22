@@ -677,6 +677,62 @@ class AgentRunnerTest(unittest.TestCase):
             any("rereading README.md" in payload.get("error", "") for payload in event_payloads)
         )
 
+    def test_run_next_step_retries_same_file_reread_once(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        session.update_plan("1. Inspect\n2. Fix\n3. Test")
+        session.approve_plan()
+        self.seed_todos(session)
+        source_dir = session.repo_path / "demo_app"
+        source_dir.mkdir()
+        (source_dir / "string_tools.py").write_text(
+            'def slugify_title(value: str) -> str:\n    return value.replace(" ", "_")\n',
+            encoding="utf-8",
+        )
+        read_result = session.request_tool(
+            FileReadRequest(relative_path="demo_app/string_tools.py")
+        )
+        self.assertEqual("executed", read_result.status)
+        runner = AgentRunner(
+            FakeModelClient(
+                [
+                    (
+                        '{"summary":"Read the slug helper again before editing.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{"tool_type":"read_file","relative_path":"demo_app/string_tools.py"}}'
+                    ),
+                    (
+                        '{"summary":"Patch the slug helper instead.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{'
+                        '"tool_type":"file_patch",'
+                        '"relative_path":"demo_app/string_tools.py",'
+                        '"expected_old_snippet":"return value.replace(\\" \\", \\"_\\")",'
+                        '"new_snippet":"return value.replace(\\" \\", \\"-\\")"'
+                        "}}"
+                    ),
+                ]
+            )
+        )
+
+        outcome = runner.run_next_step(session)
+
+        self.assertEqual("request_tool", outcome.decision.action)
+        self.assertEqual("approval_required", outcome.tool_result.status)
+        self.assertEqual("file_patch", outcome.tool_result.tool_name)
+        event_payloads = [
+            event.payload
+            for event in session.timeline
+            if event.event_type == "agent_step_output_invalid"
+        ]
+        self.assertTrue(
+            any(
+                "recent context for that file is already available"
+                in payload.get("error", "")
+                for payload in event_payloads
+            )
+        )
+
     def test_run_loop_stops_when_approval_is_required(self):
         temp_dir, session = self.make_session()
         self.addCleanup(temp_dir.cleanup)

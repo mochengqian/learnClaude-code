@@ -64,6 +64,11 @@ Rules:
 - Respect the current plan and todos.
 - Prefer read_file before file_patch or write_file.
 - Read README.md at most once; after the first pass, inspect code or tests instead of rereading it.
+- Use snapshot.read_focus.avoid_reread_paths as cached context. If a path appears there,
+  do not request read_file for that same path again unless a new failing test means you
+  need fresh context.
+- When snapshot.read_focus.preferred_next_action is patch_or_test, prefer file_patch,
+  write_file, or run_test over rereading the same file.
 - Prefer file_patch for small, localized edits.
 - write_file must contain the full file contents, not a patch.
 - Use write_file mainly for new files or full rewrites.
@@ -335,6 +340,10 @@ class AgentRunner:
                     session=session,
                     validation_error=validation_error,
                 ),
+                "read_focus_repair": self._build_read_focus_repair(
+                    session=session,
+                    validation_error=validation_error,
+                ),
                 "missing_repo_file_repair": self._build_missing_repo_file_repair(
                     validation_error
                 ),
@@ -490,6 +499,48 @@ class AgentRunner:
             "instruction": instruction,
         }
 
+    def _build_read_focus_repair(
+        self, *, session: TaskSession, validation_error: str
+    ) -> Optional[Dict[str, Any]]:
+        blocked_relative_path = self._extract_reread_relative_path(validation_error)
+        if not blocked_relative_path:
+            return None
+
+        read_focus = session.build_read_focus_snapshot()
+        preferred_next_action = str(read_focus.get("preferred_next_action") or "")
+        instruction = (
+            "The previous tool_request reread a file whose context is already "
+            "available in recent_file_contexts. Return the same JSON schema, do not "
+            "request read_file for {0} again, and use the existing context instead."
+        ).format(blocked_relative_path)
+        if preferred_next_action == "patch_or_test":
+            instruction += (
+                " Prefer file_patch/write_file for the current target, or run_test if "
+                "the repo state is ready."
+            )
+        elif preferred_next_action == "finish":
+            instruction += " The current repo state already passed local tests, so finish."
+        elif preferred_next_action == "inspect_test_failure":
+            instruction += (
+                " Use recent_test_failures before choosing a different file to read."
+            )
+
+        alternative_relative_path = self._extract_read_focus_alternative_path(
+            validation_error
+        )
+        if alternative_relative_path:
+            instruction += (
+                " If you truly need another read, prefer {0} instead."
+            ).format(alternative_relative_path)
+
+        return {
+            "blocked_relative_path": blocked_relative_path,
+            "preferred_next_action": preferred_next_action,
+            "avoid_reread_paths": list(read_focus.get("avoid_reread_paths") or []),
+            "primary_target_path": read_focus.get("primary_target_path"),
+            "instruction": instruction,
+        }
+
     def _extract_missing_repo_file_suggestions(
         self, validation_error: str
     ) -> List[str]:
@@ -516,6 +567,28 @@ class AgentRunner:
         if not match:
             return None
         return match.group(1).strip().lower()
+
+    def _extract_reread_relative_path(self, validation_error: str) -> Optional[str]:
+        match = re.search(
+            r"Model is rereading ([^\s]+)",
+            validation_error,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            return None
+        return match.group(1).strip()
+
+    def _extract_read_focus_alternative_path(
+        self, validation_error: str
+    ) -> Optional[str]:
+        match = re.search(
+            r"such as ([^.\n]+(?:\.[^.\n]+)+) instead\.",
+            validation_error,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            return None
+        return match.group(1).strip()
 
 
 def _parse_json_object(raw_text: str) -> Dict[str, Any]:

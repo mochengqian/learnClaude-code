@@ -281,6 +281,68 @@ class TaskRuntimeTest(unittest.TestCase):
         self.assertEqual("demo_app/string_tools.py", suggestions[0])
         self.assertNotIn("README.md", suggestions)
 
+    def test_read_focus_blocks_same_file_reread_with_recent_context(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        session.approve_plan()
+        source_dir = session.repo_path / "demo_app"
+        source_dir.mkdir()
+        (source_dir / "string_tools.py").write_text(
+            "def slugify_title(value: str) -> str:\n    return value\n",
+            encoding="utf-8",
+        )
+
+        read_result = session.request_tool(
+            FileReadRequest(relative_path="demo_app/string_tools.py")
+        )
+        self.assertEqual("executed", read_result.status)
+
+        message = session.validate_tool_request_read_focus(
+            FileReadRequest(relative_path="demo_app/string_tools.py")
+        )
+
+        self.assertIsNotNone(message)
+        self.assertIn("recent context for that file is already available", message)
+        self.assertIn("file_patch/write_file or run_test", message)
+
+    def test_read_focus_allows_same_file_reread_after_failed_test(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        session.approve_plan()
+        app_dir = session.repo_path / "demo_app"
+        app_dir.mkdir()
+        (app_dir / "app.py").write_text(
+            'def label() -> str:\n    return "bad"\n',
+            encoding="utf-8",
+        )
+        tests_dir = session.repo_path / "tests"
+        tests_dir.mkdir()
+        (tests_dir / "test_app.py").write_text(
+            "import unittest\n\n"
+            "from demo_app.app import label\n\n"
+            "class AppTest(unittest.TestCase):\n"
+            "    def test_label(self):\n"
+            '        self.assertEqual("good", label())\n',
+            encoding="utf-8",
+        )
+
+        read_result = session.request_tool(
+            FileReadRequest(relative_path="demo_app/app.py")
+        )
+        self.assertEqual("executed", read_result.status)
+        failed_test = session.request_tool(
+            TestCommandRequest(
+                command=("python3", "-m", "unittest", "discover", "-s", "tests", "-v")
+            )
+        )
+        self.assertEqual(1, failed_test.exit_code)
+
+        message = session.validate_tool_request_read_focus(
+            FileReadRequest(relative_path="demo_app/app.py")
+        )
+
+        self.assertIsNone(message)
+
     def test_directory_path_suggestion_prefers_file_inside_directory(self):
         temp_dir, session = self.make_session()
         self.addCleanup(temp_dir.cleanup)
