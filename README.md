@@ -39,8 +39,15 @@ repo_task_runtime/
   __init__.py
   approval.py
   agent.py
+  context_bundle.py
   diffing.py
   demo_repo.py
+  eval_cases.py
+  eval_metrics.py
+  eval_runner.py
+  eval_pack.py
+  eval_types.py
+  git_repo.py
   model_client.py
   models.py
   session.py
@@ -51,13 +58,17 @@ repo_task_runtime/
     styles.css
 examples/
   demo_repo_template/
+  eval_repo_templates/
 scripts/
+  run_eval.py
   setup_demo_repo.py
 tests/
   test_agent.py
+  test_context_bundle.py
   test_runtime.py
   test_api.py
   test_demo_flow.py
+  test_eval_pack.py
   test_web_console.py
 ```
 
@@ -67,11 +78,11 @@ tests/
 from pathlib import Path
 
 from repo_task_runtime import (
+    FilePatchRequest,
     TaskWorkbench,
     TestCommandRequest,
     TodoItem,
     TodoStatus,
-    WriteFileRequest,
 )
 
 workbench = TaskWorkbench()
@@ -94,7 +105,11 @@ session.replace_todos(
 )
 
 pending = session.request_tool(
-    WriteFileRequest(relative_path="notes.txt", content="temporary note\n")
+    FilePatchRequest(
+        relative_path="parser.py",
+        expected_old_snippet="return token.value\n",
+        new_snippet="return token.value.strip()\n",
+    )
 )
 session.resolve_approval(pending.approval_id, approve=True)
 
@@ -132,9 +147,10 @@ snapshot = session.snapshot()
 
 ### `ToolRequest`
 
-首版只保留 4 类请求：
+首版只保留 5 类请求：
 
 - `FileReadRequest`
+- `FilePatchRequest`
 - `WriteFileRequest`
 - `ShellCommandRequest`
 - `TestCommandRequest`
@@ -145,7 +161,7 @@ snapshot = session.snapshot()
 
 - `plan mode` 对变更工具的阻断
 - `todo lifecycle` 状态机约束
-- 写文件审批流
+- `file_patch` / 写文件审批流
 - 本地测试命令执行
 - diff 与 timeline 更新
 
@@ -168,6 +184,25 @@ python3 -m unittest discover -s tests -v
 1. 不做 Web 控制台，先只保留 Python service。
 2. 不做自动 plan 生成，先由人工或假模型写 plan。
 3. 不做通用 shell，先只保留文件读写和测试工具。
+
+## `file_patch` 原语
+
+这一轮新增了一个最小 `file_patch`：
+
+- 只支持单文件字符串替换
+- 需要 `relative_path`
+- 需要 `expected_old_snippet`
+- 需要 `new_snippet`
+- 可选 `replace_all`
+
+约束故意保持保守：
+
+- 默认要求 `expected_old_snippet` 只匹配一次
+- 如果匹配不到，会直接失败
+- 如果匹配到多处且 `replace_all=false`，会直接失败
+- 仍然走 approval、diff、timeline
+
+这一步的目标不是做通用 patch 引擎，而是先把“局部编辑原语”补齐，替换掉 demo 里原先的整文件覆盖。
 
 下一步最合理的扩展不是“加功能”，而是继续围绕这套 runtime 做一个很薄的可演示壳。
 
@@ -209,6 +244,116 @@ uvicorn repo_task_runtime.api:app --reload
 ```bash
 python3 -m pip install --target ./.vendor fastapi uvicorn pydantic httpx
 ```
+
+## Eval Pack
+
+这一轮新增了一个固定内置的 `eval pack`，目标不是做 benchmark 平台，而是给 runtime 提供一组稳定、可重复、可量化的回归任务。
+
+当前内置 3 个 case：
+
+- `slug_join`
+- `clamp_lower_bound`
+- `compact_whitespace`
+
+每个 case 都会：
+
+1. 从模板生成一个临时 Git repo
+2. 创建一个新的 `TaskSession`
+3. 让 agent 起 plan
+4. 跑有限步数的 repo-task loop
+5. 最后强制再跑一次本地测试做验证闭环
+
+核心实现：
+
+- [repo_task_runtime/eval_pack.py](/Users/luan/claude-code-main/learnClaude-code/repo_task_runtime/eval_pack.py:1)
+- [scripts/run_eval.py](/Users/luan/claude-code-main/learnClaude-code/scripts/run_eval.py:1)
+
+先列出内置 case：
+
+```bash
+python3 scripts/run_eval.py --list-cases
+```
+
+使用当前模型配置跑完整 eval pack：
+
+```bash
+export REPO_TASK_MODEL_BASE_URL="https://right.codes/codex/v1"
+export REPO_TASK_MODEL_API_KEY="..."
+export REPO_TASK_MODEL_NAME="gpt-5.4-mini"
+python3 scripts/run_eval.py --approval-mode auto_approve_edits
+```
+
+如果你想观察 agent 在真实 approval 边界上的停机原因，而不是自动放行编辑：
+
+```bash
+python3 scripts/run_eval.py --approval-mode stop_on_request
+```
+
+也可以只跑某个 case：
+
+```bash
+python3 scripts/run_eval.py --case slug_join --case clamp_lower_bound
+```
+
+当前输出除了通过率和失败原因，还开始补上 `context bundle` 的效果代理指标：
+
+- 通过 / 失败数量
+- 平均步数
+- 平均 `read_file` 次数
+- 平均重复 `read_file` 次数
+- 有多少 case 还在复读同一文件
+- 每个 case 的 `stop_reason`
+- 聚合后的 `failure_reason_counts`
+
+每个 case 现在也会额外记录：
+
+- `read_file_calls`
+- `duplicate_read_file_calls`
+- `same_file_reread_detected`
+- `same_file_reread_paths`
+
+失败原因当前会归并成最小集合：
+
+- `approval_required`
+- `bad_patch`
+- `tool_failed`
+- `tool_blocked`
+- `max_steps_reached`
+- `verification_failed`
+- `runner_failed`
+
+## Context Bundle
+
+这一轮把 agent 每步拿到的 prompt 上下文，从“临时拼一个 snapshot”收敛成了一个最小 `context bundle`：
+
+- [repo_task_runtime/context_bundle.py](/Users/luan/claude-code-main/learnClaude-code/repo_task_runtime/context_bundle.py:1)
+
+边界仍然很克制，只包含：
+
+- 当前 task input / plan / todos / approvals
+- `latest_tool_result`
+- `latest_diff`
+- `recent_timeline`
+- `recent_file_contexts`
+- `recent_test_failures`
+
+`recent_file_contexts` 有两个关键约束：
+
+- 最近读过的文件会进入 bundle
+- 最近写过或 patch 过的文件，也会刷新进 bundle，避免模型继续拿旧内容做判断
+
+`recent_test_failures` 也保持最小语义：
+
+- 测试失败时保留最近失败摘要
+- 测试成功后清空旧失败，避免把过期报错继续塞给模型
+
+agent 接入点仍然只有一处：
+
+- [repo_task_runtime/agent.py](/Users/luan/claude-code-main/learnClaude-code/repo_task_runtime/agent.py:68)
+
+验证这条线的测试：
+
+- [tests/test_context_bundle.py](/Users/luan/claude-code-main/learnClaude-code/tests/test_context_bundle.py:1)
 
 ## 模型接入
 
@@ -302,7 +447,7 @@ curl -X POST http://127.0.0.1:8000/demo/setup
 5. 用 `agent/step` 先读文件或先跑测试。
 6. 也可以改用 `agent/loop`，让 agent 在限步内连续推进。
 7. `agent/loop` 一旦遇到 `approval_required / denied / failed / finish / max_steps` 就会停下。
-8. 如果 agent 走到 `write_file`，它仍然会进入 approval queue。
+8. 如果 agent 走到 `file_patch` 或 `write_file`，它仍然会进入 approval queue。
 9. approve once 后，再跑下一步 agent step、agent loop 或手工触发 `run_test`。
 10. 确认测试通过。
 11. 在控制台查看 latest diff、latest tool result 和 event timeline。

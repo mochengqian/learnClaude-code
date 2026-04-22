@@ -61,6 +61,7 @@
           Tool Type
           <select id="tool-type-select">
             <option value="read_file">read_file</option>
+            <option value="file_patch">file_patch</option>
             <option value="write_file">write_file</option>
             <option value="shell">shell</option>
             <option value="run_test">run_test</option>
@@ -73,6 +74,18 @@
         <label>
           File Content
           <textarea id="tool-content-textarea" rows="6" placeholder="Only used for write_file"></textarea>
+        </label>
+        <label>
+          Expected Old Snippet
+          <textarea id="tool-expected-old-snippet-textarea" rows="4" placeholder="Only used for file_patch"></textarea>
+        </label>
+        <label>
+          New Snippet
+          <textarea id="tool-new-snippet-textarea" rows="4" placeholder="Only used for file_patch"></textarea>
+        </label>
+        <label>
+          <input id="tool-replace-all-checkbox" type="checkbox" />
+          Replace All Matches
         </label>
         <label>
           Command

@@ -8,8 +8,11 @@ from .approval import ApprovalPolicy
 from .diffing import build_unified_diff, repo_git_diff
 from .models import (
     ApprovalRequest,
+    FilePatchRequest,
     FileReadRequest,
     PermissionMode,
+    RecentFileContext,
+    RecentTestFailure,
     ShellCommandRequest,
     TaskSnapshot,
     TestCommandRequest,
@@ -41,6 +44,8 @@ class TaskSession:
         self.todos: List[TodoItem] = []
         self.latest_diff = ""
         self.latest_tool_result: Optional[ToolExecutionResult] = None
+        self.recent_file_contexts: List[RecentFileContext] = []
+        self.recent_test_failures: List[RecentTestFailure] = []
         self.timeline: List[TimelineEvent] = []
         self.pending_approvals: Dict[str, ApprovalRequest] = {}
 
@@ -53,6 +58,7 @@ class TaskSession:
         task_input = task_input.strip()
         if not task_input:
             raise ValueError("Task input cannot be empty.")
+        self._reset_task_state()
         self.task_input = task_input
         self.permission_mode = PermissionMode.PLAN
         self._record("task_received", task_input=task_input)
@@ -188,6 +194,11 @@ class TaskSession:
         if isinstance(request, FileReadRequest):
             resolved_path = self._resolve_repo_path(request.relative_path)
             content = resolved_path.read_text(encoding="utf-8")
+            self._remember_file_context(
+                relative_path=request.relative_path,
+                content=content,
+                source_tool=tool_name,
+            )
             result = ToolExecutionResult(
                 status="executed",
                 tool_name=tool_name,
@@ -197,6 +208,63 @@ class TaskSession:
                     "content": content,
                 },
             )
+        elif isinstance(request, FilePatchRequest):
+            resolved_path = self._resolve_repo_path(request.relative_path)
+            if not resolved_path.exists():
+                raise ValueError(
+                    "Cannot patch a missing file: {0}".format(request.relative_path)
+                )
+            old_content = resolved_path.read_text(encoding="utf-8")
+            occurrences = old_content.count(request.expected_old_snippet)
+            if occurrences == 0:
+                raise ValueError(
+                    "expected_old_snippet was not found in {0}".format(
+                        request.relative_path
+                    )
+                )
+            if occurrences > 1 and not request.replace_all:
+                raise ValueError(
+                    "expected_old_snippet matched multiple locations in {0}; "
+                    "set replace_all=true or use a more specific snippet.".format(
+                        request.relative_path
+                    )
+                )
+            if request.replace_all:
+                new_content = old_content.replace(
+                    request.expected_old_snippet, request.new_snippet
+                )
+                replacements = occurrences
+            else:
+                new_content = old_content.replace(
+                    request.expected_old_snippet, request.new_snippet, 1
+                )
+                replacements = 1
+            if new_content == old_content:
+                raise ValueError(
+                    "file_patch produced no changes for {0}".format(
+                        request.relative_path
+                    )
+                )
+            resolved_path.write_text(new_content, encoding="utf-8")
+            self._remember_file_context(
+                relative_path=request.relative_path,
+                content=new_content,
+                source_tool=tool_name,
+            )
+            file_diff = build_unified_diff(
+                request.relative_path, old_content, new_content
+            )
+            result = ToolExecutionResult(
+                status="executed",
+                tool_name=tool_name,
+                message="Patched file successfully.",
+                diff=file_diff,
+                data={
+                    "relative_path": request.relative_path,
+                    "replacements": replacements,
+                    "replace_all": request.replace_all,
+                },
+            )
         elif isinstance(request, WriteFileRequest):
             resolved_path = self._resolve_repo_path(request.relative_path)
             old_content = ""
@@ -204,6 +272,11 @@ class TaskSession:
                 old_content = resolved_path.read_text(encoding="utf-8")
             resolved_path.parent.mkdir(parents=True, exist_ok=True)
             resolved_path.write_text(request.content, encoding="utf-8")
+            self._remember_file_context(
+                relative_path=request.relative_path,
+                content=request.content,
+                source_tool=tool_name,
+            )
             file_diff = build_unified_diff(
                 request.relative_path, old_content, request.content
             )
@@ -234,6 +307,13 @@ class TaskSession:
                 diff=diff,
                 data={"command": list(request.command)},
             )
+            if isinstance(request, TestCommandRequest):
+                self._remember_test_result(
+                    command=request.command,
+                    exit_code=completed.returncode,
+                    stdout=completed.stdout,
+                    stderr=completed.stderr,
+                )
         else:
             raise TypeError("Unsupported request: {0}".format(type(request)))
 
@@ -288,6 +368,56 @@ class TaskSession:
 
     def _record(self, event_type: str, **payload: object) -> None:
         self.timeline.append(TimelineEvent(event_type=event_type, payload=dict(payload)))
+
+    def _reset_task_state(self) -> None:
+        self.task_input = None
+        self.permission_mode = PermissionMode.DEFAULT
+        self.plan = None
+        self.todos = []
+        self.latest_diff = ""
+        self.latest_tool_result = None
+        self.recent_file_contexts = []
+        self.recent_test_failures = []
+        self.timeline = []
+        self.pending_approvals = {}
+
+    def _remember_file_context(
+        self, relative_path: str, content: str, source_tool: str
+    ) -> None:
+        self.recent_file_contexts = [
+            item
+            for item in self.recent_file_contexts
+            if item.relative_path != relative_path
+        ]
+        self.recent_file_contexts.append(
+            RecentFileContext(
+                relative_path=relative_path,
+                content=content,
+                source_tool=source_tool,
+            )
+        )
+        self.recent_file_contexts = self.recent_file_contexts[-3:]
+
+    def _remember_test_result(
+        self,
+        command: tuple[str, ...],
+        exit_code: Optional[int],
+        stdout: str,
+        stderr: str,
+    ) -> None:
+        if exit_code in {0, None}:
+            self.recent_test_failures = []
+            return
+
+        self.recent_test_failures.append(
+            RecentTestFailure(
+                command=command,
+                exit_code=exit_code,
+                stdout=stdout,
+                stderr=stderr,
+            )
+        )
+        self.recent_test_failures = self.recent_test_failures[-2:]
 
     def _resolve_repo_path(self, relative_path: str) -> Path:
         candidate = (self.repo_path / relative_path).resolve()

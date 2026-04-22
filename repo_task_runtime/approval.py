@@ -5,6 +5,7 @@ from typing import Sequence, Tuple
 
 from .models import (
     FileReadRequest,
+    FilePatchRequest,
     PermissionMode,
     ShellCommandRequest,
     TestCommandRequest,
@@ -83,10 +84,12 @@ class ApprovalPolicy:
                 "deny", "plan mode is read-only; exit plan mode before mutating the repo"
             )
 
-        if isinstance(request, WriteFileRequest):
+        if isinstance(request, (WriteFileRequest, FilePatchRequest)):
             if mode == PermissionMode.ACCEPT_EDITS:
-                return ApprovalDecision("allow", "accept_edits mode auto-allows file writes")
-            return ApprovalDecision("ask", "writing files requires user approval")
+                return ApprovalDecision(
+                    "allow", "accept_edits mode auto-allows file edits"
+                )
+            return ApprovalDecision("ask", "editing files requires user approval")
 
         if isinstance(request, TestCommandRequest):
             if _matches_prefix(request.command, self.safe_test_prefixes):

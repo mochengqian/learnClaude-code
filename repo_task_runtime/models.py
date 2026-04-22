@@ -96,6 +96,20 @@ class WriteFileRequest:
 
 
 @dataclass(frozen=True)
+class FilePatchRequest:
+    relative_path: str
+    expected_old_snippet: str
+    new_snippet: str
+    replace_all: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.relative_path.strip():
+            raise ValueError("relative_path cannot be empty.")
+        if not self.expected_old_snippet:
+            raise ValueError("expected_old_snippet cannot be empty.")
+
+
+@dataclass(frozen=True)
 class ShellCommandRequest:
     command: Tuple[str, ...]
     timeout_seconds: int = 30
@@ -117,6 +131,7 @@ class TestCommandRequest:
 
 ToolInvocationRequest = Union[
     FileReadRequest,
+    FilePatchRequest,
     WriteFileRequest,
     ShellCommandRequest,
     TestCommandRequest,
@@ -133,6 +148,8 @@ def normalize_command(command: Sequence[str]) -> Tuple[str, ...]:
 def tool_name_for_request(request: ToolInvocationRequest) -> str:
     if isinstance(request, FileReadRequest):
         return "read_file"
+    if isinstance(request, FilePatchRequest):
+        return "file_patch"
     if isinstance(request, WriteFileRequest):
         return "write_file"
     if isinstance(request, TestCommandRequest):
@@ -143,6 +160,17 @@ def tool_name_for_request(request: ToolInvocationRequest) -> str:
 def request_summary(request: ToolInvocationRequest) -> Dict[str, Any]:
     if isinstance(request, FileReadRequest):
         return {"relative_path": request.relative_path}
+    if isinstance(request, FilePatchRequest):
+        return {
+            "relative_path": request.relative_path,
+            "expected_old_snippet_preview": _preview_text(
+                request.expected_old_snippet
+            ),
+            "new_snippet_preview": _preview_text(request.new_snippet),
+            "expected_old_snippet_chars": len(request.expected_old_snippet),
+            "new_snippet_chars": len(request.new_snippet),
+            "replace_all": request.replace_all,
+        }
     if isinstance(request, WriteFileRequest):
         return {
             "relative_path": request.relative_path,
@@ -195,6 +223,40 @@ class ToolExecutionResult:
             "exit_code": self.exit_code,
             "diff": self.diff,
             "data": self.data,
+        }
+
+
+@dataclass(frozen=True)
+class RecentFileContext:
+    relative_path: str
+    content: str
+    source_tool: str
+    captured_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "relative_path": self.relative_path,
+            "content": self.content,
+            "source_tool": self.source_tool,
+            "captured_at": self.captured_at,
+        }
+
+
+@dataclass(frozen=True)
+class RecentTestFailure:
+    command: Tuple[str, ...]
+    exit_code: Optional[int]
+    stdout: str = ""
+    stderr: str = ""
+    captured_at: str = field(default_factory=utc_now_iso)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "command": list(self.command),
+            "exit_code": self.exit_code,
+            "stdout": self.stdout,
+            "stderr": self.stderr,
+            "captured_at": self.captured_at,
         }
 
 
@@ -292,6 +354,26 @@ def tool_request_from_payload(payload: Mapping[str, Any]) -> ToolInvocationReque
             content=str(payload.get("content")),
         )
 
+    if tool_type == "file_patch":
+        relative_path = str(payload.get("relative_path") or "").strip()
+        if not relative_path:
+            raise ValueError("relative_path is required for file_patch.")
+        if "expected_old_snippet" not in payload or payload.get("expected_old_snippet") is None:
+            raise ValueError("expected_old_snippet is required for file_patch.")
+        if "new_snippet" not in payload or payload.get("new_snippet") is None:
+            raise ValueError("new_snippet is required for file_patch.")
+        replace_all = payload.get("replace_all", False)
+        if isinstance(replace_all, str):
+            replace_all = replace_all.strip().lower() in {"1", "true", "yes", "on"}
+        else:
+            replace_all = bool(replace_all)
+        return FilePatchRequest(
+            relative_path=relative_path,
+            expected_old_snippet=str(payload.get("expected_old_snippet")),
+            new_snippet=str(payload.get("new_snippet")),
+            replace_all=replace_all,
+        )
+
     if tool_type not in {"shell", "run_test"}:
         raise ValueError("Unsupported tool_type: {0}".format(tool_type))
 
@@ -311,6 +393,12 @@ def tool_request_from_payload(payload: Mapping[str, Any]) -> ToolInvocationReque
         command=command_parts,
         timeout_seconds=timeout_seconds or 120,
     )
+
+
+def _preview_text(value: str, limit: int = 160) -> str:
+    if len(value) <= limit:
+        return value
+    return "{0}...<truncated {1} chars>".format(value[:limit], len(value) - limit)
 
 
 @dataclass

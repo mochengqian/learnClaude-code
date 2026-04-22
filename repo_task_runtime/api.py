@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 _VENDOR_DIR = Path(__file__).resolve().parent.parent / ".vendor"
 if _VENDOR_DIR.exists():
@@ -55,10 +55,13 @@ class ReplaceTodosBody(BaseModel):
 
 
 class ToolRequestBody(BaseModel):
-    tool_type: str = Field(pattern="^(read_file|write_file|shell|run_test)$")
+    tool_type: str = Field(pattern="^(read_file|file_patch|write_file|shell|run_test)$")
     relative_path: Optional[str] = None
+    expected_old_snippet: Optional[str] = None
+    new_snippet: Optional[str] = None
+    replace_all: bool = False
     content: Optional[str] = None
-    command: List[str] = Field(default_factory=list)
+    command: Union[List[str], str] = Field(default_factory=list)
     timeout_seconds: Optional[int] = None
 
 
@@ -277,6 +280,9 @@ def _build_tool_request(body: ToolRequestBody):
         {
             "tool_type": body.tool_type,
             "relative_path": body.relative_path,
+            "expected_old_snippet": body.expected_old_snippet,
+            "new_snippet": body.new_snippet,
+            "replace_all": body.replace_all,
             "content": body.content,
             "command": body.command,
             "timeout_seconds": body.timeout_seconds,

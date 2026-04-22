@@ -19,6 +19,9 @@ const elements = {
   toolTypeSelect: document.getElementById("tool-type-select"),
   toolRelativePathInput: document.getElementById("tool-relative-path-input"),
   toolContentTextarea: document.getElementById("tool-content-textarea"),
+  toolExpectedOldSnippetTextarea: document.getElementById("tool-expected-old-snippet-textarea"),
+  toolNewSnippetTextarea: document.getElementById("tool-new-snippet-textarea"),
+  toolReplaceAllCheckbox: document.getElementById("tool-replace-all-checkbox"),
   toolCommandInput: document.getElementById("tool-command-input"),
   agentLoopMaxStepsInput: document.getElementById("agent-loop-max-steps-input"),
 };
@@ -279,8 +282,11 @@ document.getElementById("tool-form").addEventListener("submit", async (event) =>
       body: JSON.stringify({
         tool_type: elements.toolTypeSelect.value,
         relative_path: elements.toolRelativePathInput.value || null,
+        expected_old_snippet: elements.toolExpectedOldSnippetTextarea.value || null,
+        new_snippet: elements.toolNewSnippetTextarea.value || null,
+        replace_all: elements.toolReplaceAllCheckbox.checked,
         content: elements.toolContentTextarea.value || null,
-        command: (elements.toolCommandInput.value || "").split(" ").filter(Boolean),
+        command: elements.toolCommandInput.value || "",
       }),
     });
     state.latestAgent = null;

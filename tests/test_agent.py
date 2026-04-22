@@ -89,7 +89,7 @@ class AgentRunnerTest(unittest.TestCase):
         event_types = [event.event_type for event in session.timeline]
         self.assertIn("agent_plan_drafted", event_types)
 
-    def test_run_next_step_keeps_write_requests_inside_approval_flow(self):
+    def test_run_next_step_keeps_file_patch_requests_inside_approval_flow(self):
         temp_dir, session = self.make_session()
         self.addCleanup(temp_dir.cleanup)
         session.update_plan("1. Inspect\n2. Fix\n3. Test")
@@ -99,12 +99,13 @@ class AgentRunnerTest(unittest.TestCase):
             FakeModelClient(
                 [
                     (
-                        '{"summary":"Update the README file with the fix note.",'
+                        '{"summary":"Patch the README file with the fix note.",'
                         '"action":"request_tool",'
                         '"tool_request":{'
-                        '"tool_type":"write_file",'
+                        '"tool_type":"file_patch",'
                         '"relative_path":"README.md",'
-                        '"content":"hello\\nfix applied\\n"'
+                        '"expected_old_snippet":"hello\\n",'
+                        '"new_snippet":"hello\\nfix applied\\n"'
                         "}}"
                     )
                 ]
@@ -189,17 +190,18 @@ class AgentRunnerTest(unittest.TestCase):
                         '"action":"request_tool",'
                         '"tool_request":{"tool_type":"read_file","relative_path":"README.md"}}'
                     ),
-                    (
-                        '{"summary":"Apply the fix note.",'
-                        '"action":"request_tool",'
-                        '"tool_request":{'
-                        '"tool_type":"write_file",'
-                        '"relative_path":"README.md",'
-                        '"content":"hello\\nfix applied\\n"'
-                        "}}"
-                    ),
-                ]
-            )
+                (
+                    '{"summary":"Apply the fix note.",'
+                    '"action":"request_tool",'
+                    '"tool_request":{'
+                    '"tool_type":"file_patch",'
+                    '"relative_path":"README.md",'
+                    '"expected_old_snippet":"hello\\n",'
+                    '"new_snippet":"hello\\nfix applied\\n"'
+                    "}}"
+                ),
+            ]
+        )
         )
 
         outcome = runner.run_loop(session, max_steps=4)

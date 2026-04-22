@@ -160,6 +160,123 @@ class ApiRuntimeTest(unittest.TestCase):
         self.assertTrue((self.repo_path / "notes.txt").exists())
         self.assertIn("notes.txt", response.json()["session"]["latest_diff"])
 
+    def test_file_patch_approval_flow_over_http(self):
+        client = self.make_client()
+        response = client.post(
+            "/sessions",
+            json={"repo_path": str(self.repo_path), "task_input": "Fix a bug"},
+        )
+        session_id = response.json()["session"]["session_id"]
+        client.post(
+            f"/sessions/{session_id}/plan",
+            json={"plan_markdown": "1. Inspect\n2. Fix\n3. Test"},
+        )
+        client.post(f"/sessions/{session_id}/plan/approve")
+
+        response = client.post(
+            f"/sessions/{session_id}/tools",
+            json={
+                "tool_type": "file_patch",
+                "relative_path": "README.md",
+                "expected_old_snippet": "hello\n",
+                "new_snippet": "hello\npatched\n",
+            },
+        )
+        self.assertEqual(200, response.status_code)
+        result = response.json()["result"]
+        self.assertEqual("approval_required", result["status"])
+        approval_id = result["approval_id"]
+
+        response = client.post(
+            f"/sessions/{session_id}/approvals/{approval_id}/resolve",
+            json={"approve": True},
+        )
+        self.assertEqual(200, response.status_code)
+        result = response.json()["result"]
+        self.assertEqual("executed", result["status"])
+        self.assertEqual("hello\npatched\n", (self.repo_path / "README.md").read_text(encoding="utf-8"))
+        self.assertIn("README.md", response.json()["session"]["latest_diff"])
+
+    def test_begin_task_endpoint_resets_previous_task_state(self):
+        client = self.make_client()
+        response = client.post(
+            "/sessions",
+            json={"repo_path": str(self.repo_path), "task_input": "Fix a bug"},
+        )
+        session_id = response.json()["session"]["session_id"]
+        client.post(
+            f"/sessions/{session_id}/plan",
+            json={"plan_markdown": "1. Inspect\n2. Fix\n3. Test"},
+        )
+        client.post(f"/sessions/{session_id}/plan/approve")
+        client.put(
+            f"/sessions/{session_id}/todos",
+            json={"todos": [{"content": "Inspect", "status": "in_progress"}]},
+        )
+        client.post(
+            f"/sessions/{session_id}/tools",
+            json={"tool_type": "read_file", "relative_path": "README.md"},
+        )
+        response = client.post(
+            f"/sessions/{session_id}/tools",
+            json={
+                "tool_type": "write_file",
+                "relative_path": "notes.txt",
+                "content": "pending\n",
+            },
+        )
+        self.assertEqual("approval_required", response.json()["result"]["status"])
+
+        response = client.post(
+            f"/sessions/{session_id}/task",
+            json={"task_input": "Start a new task"},
+        )
+
+        self.assertEqual(200, response.status_code)
+        session = response.json()["session"]
+        self.assertEqual("Start a new task", session["task_input"])
+        self.assertEqual("plan", session["permission_mode"])
+        self.assertIsNone(session["plan"])
+        self.assertEqual([], session["todos"])
+        self.assertEqual("", session["latest_diff"])
+        self.assertIsNone(session["latest_tool_result"])
+        self.assertEqual([], session["pending_approvals"])
+        self.assertEqual(
+            ["task_received", "plan_mode_entered"],
+            [event["event_type"] for event in session["timeline"]],
+        )
+
+    def test_tool_endpoint_accepts_string_command_payload(self):
+        client = self.make_client()
+        response = client.post(
+            "/sessions",
+            json={"repo_path": str(self.repo_path), "task_input": "Inspect the repo"},
+        )
+        session_id = response.json()["session"]["session_id"]
+        client.post(
+            f"/sessions/{session_id}/plan",
+            json={"plan_markdown": "1. Inspect\n2. Verify"},
+        )
+        client.post(f"/sessions/{session_id}/plan/approve")
+        (self.repo_path / "hello world.txt").write_text("ok\n", encoding="utf-8")
+
+        response = client.post(
+            f"/sessions/{session_id}/tools",
+            json={
+                "tool_type": "shell",
+                "command": 'find . -name "hello world.txt"',
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        payload = response.json()
+        self.assertEqual("executed", payload["result"]["status"])
+        self.assertEqual(
+            ["find", ".", "-name", "hello world.txt"],
+            payload["result"]["data"]["command"],
+        )
+        self.assertIn("hello world.txt", payload["result"]["stdout"])
+
     def test_agent_plan_endpoint_populates_plan_and_todos(self):
         client = self.make_client(
             [
@@ -232,12 +349,13 @@ class ApiRuntimeTest(unittest.TestCase):
                     '"tool_request":{"tool_type":"read_file","relative_path":"README.md"}}'
                 ),
                 (
-                    '{"summary":"Write the fix note.",'
+                    '{"summary":"Patch the README with the fix note.",'
                     '"action":"request_tool",'
                     '"tool_request":{'
-                    '"tool_type":"write_file",'
+                    '"tool_type":"file_patch",'
                     '"relative_path":"README.md",'
-                    '"content":"hello\\nfix applied\\n"'
+                    '"expected_old_snippet":"hello\\n",'
+                    '"new_snippet":"hello\\nfix applied\\n"'
                     "}}"
                 ),
             ]

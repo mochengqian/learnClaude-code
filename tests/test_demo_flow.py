@@ -77,13 +77,13 @@ class DemoFlowTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         self.assertEqual(1, response.json()["result"]["exit_code"])
 
-        fixed_content = original_content.replace('"_".join', '"-".join')
         response = self.client.post(
             f"/sessions/{session_id}/tools",
             json={
-                "tool_type": "write_file",
+                "tool_type": "file_patch",
                 "relative_path": "demo_app/string_tools.py",
-                "content": fixed_content,
+                "expected_old_snippet": '"_".join',
+                "new_snippet": '"-".join',
             },
         )
         self.assertEqual(200, response.status_code)

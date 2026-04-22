@@ -41,4 +41,5 @@ class WebConsoleTest(unittest.TestCase):
         self.assertIn("agent-plan-button", js_response.text)
         self.assertIn("agent-step-button", js_response.text)
         self.assertIn("agent-loop-button", js_response.text)
+        self.assertNotIn('.split(" ")', js_response.text)
         self.assertIn("--accent", css_response.text)

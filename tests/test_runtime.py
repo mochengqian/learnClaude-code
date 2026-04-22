@@ -4,6 +4,8 @@ import unittest
 from pathlib import Path
 
 from repo_task_runtime import (
+    FilePatchRequest,
+    FileReadRequest,
     ShellCommandRequest,
     TaskWorkbench,
     TestCommandRequest,
@@ -67,6 +69,40 @@ class TaskRuntimeTest(unittest.TestCase):
         self.assertEqual("executed", executed.status)
         self.assertIn("+approved", executed.diff)
         self.assertTrue((session.repo_path / "notes.txt").exists())
+
+    def test_file_patch_requires_approval_and_rejects_ambiguous_matches(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        session.approve_plan()
+
+        target = session.repo_path / "module.py"
+        target.write_text('value = "same"\nother = "same"\n', encoding="utf-8")
+
+        pending = session.request_tool(
+            FilePatchRequest(
+                relative_path="module.py",
+                expected_old_snippet='"same"',
+                new_snippet='"updated"',
+            )
+        )
+        self.assertEqual("approval_required", pending.status)
+
+        executed = session.resolve_approval(pending.approval_id, approve=True)
+        self.assertEqual("failed", executed.status)
+        self.assertIn("matched multiple locations", executed.message)
+
+        pending = session.request_tool(
+            FilePatchRequest(
+                relative_path="module.py",
+                expected_old_snippet='value = "same"',
+                new_snippet='value = "updated"',
+            )
+        )
+        executed = session.resolve_approval(pending.approval_id, approve=True)
+        self.assertEqual("executed", executed.status)
+        self.assertIn('-value = "same"', executed.diff)
+        self.assertIn('+value = "updated"', executed.diff)
+        self.assertIn('other = "same"', target.read_text(encoding="utf-8"))
 
     def test_todo_lifecycle_enforces_single_in_progress(self):
         temp_dir, session = self.make_session()
@@ -134,6 +170,42 @@ class TaskRuntimeTest(unittest.TestCase):
         denied = session.request_tool(ShellCommandRequest(command=("rm", "-rf", ".")))
         self.assertEqual("denied", denied.status)
         self.assertIn("dangerous", denied.message)
+
+    def test_begin_task_resets_previous_task_state(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        session.approve_plan()
+        session.replace_todos(
+            [
+                TodoItem(content="Inspect failure", status=TodoStatus.IN_PROGRESS),
+                TodoItem(content="Patch code", status=TodoStatus.PENDING),
+            ]
+        )
+        read_result = session.request_tool(FileReadRequest(relative_path="README.md"))
+        self.assertEqual("executed", read_result.status)
+        pending = session.request_tool(
+            WriteFileRequest(relative_path="notes.txt", content="draft\n")
+        )
+        self.assertEqual("approval_required", pending.status)
+        self.assertEqual(1, len(session.pending_approvals))
+        self.assertEqual(1, len(session.recent_file_contexts))
+
+        session.begin_task("Start a fresh task")
+
+        snapshot = session.snapshot()
+        self.assertEqual("Start a fresh task", snapshot.task_input)
+        self.assertEqual("plan", snapshot.permission_mode)
+        self.assertIsNone(snapshot.plan)
+        self.assertEqual([], list(snapshot.todos))
+        self.assertEqual("", snapshot.latest_diff)
+        self.assertIsNone(snapshot.latest_tool_result)
+        self.assertEqual([], list(snapshot.pending_approvals))
+        self.assertEqual([], session.recent_file_contexts)
+        self.assertEqual([], session.recent_test_failures)
+        self.assertEqual(
+            ["task_received", "plan_mode_entered"],
+            [event.event_type for event in snapshot.timeline],
+        )
 
 
 if __name__ == "__main__":

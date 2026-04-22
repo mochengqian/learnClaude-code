@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import shutil
-import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
+from .git_repo import initialize_git_repo
 
 
 @dataclass(frozen=True)
@@ -42,7 +43,12 @@ def create_demo_repo(target_dir: Optional[Path] = None) -> DemoRepoInfo:
         destination.mkdir(parents=True, exist_ok=True)
 
     shutil.copytree(source_dir, destination, dirs_exist_ok=True)
-    _initialize_git_repo(destination)
+    initialize_git_repo(
+        destination,
+        user_email="demo@example.com",
+        user_name="Repo Task Demo",
+        initial_commit_message="Initial demo repo state",
+    )
 
     return DemoRepoInfo(
         repo_path=str(destination),
@@ -55,27 +61,4 @@ def create_demo_repo(target_dir: Optional[Path] = None) -> DemoRepoInfo:
             "Read demo_app/string_tools.py, fix the join character, and verify "
             "the unittest suite passes."
         ),
-    )
-
-
-def _initialize_git_repo(repo_path: Path) -> None:
-    subprocess.run(["git", "init"], cwd=str(repo_path), check=True, capture_output=True)
-    subprocess.run(
-        ["git", "config", "user.email", "demo@example.com"],
-        cwd=str(repo_path),
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "config", "user.name", "Repo Task Demo"],
-        cwd=str(repo_path),
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(["git", "add", "."], cwd=str(repo_path), check=True, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "-m", "Initial demo repo state"],
-        cwd=str(repo_path),
-        check=True,
-        capture_output=True,
     )

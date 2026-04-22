@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List, Optional
 
+from .context_bundle import ContextBundleBuilder
 from .model_client import ModelClientError
 from .models import (
     AgentDecision,
@@ -10,10 +11,8 @@ from .models import (
     AgentPlanDraft,
     AgentStepOutcome,
     PermissionMode,
-    TaskSnapshot,
     TodoItem,
     TodoStatus,
-    ToolExecutionResult,
     tool_name_for_request,
     tool_request_from_payload,
 )
@@ -34,7 +33,7 @@ The required JSON shape is:
 
 Rules:
 - Keep the plan short and executable, usually 3 steps.
-- Stay inside this runtime: read_file, write_file, shell, run_test.
+- Stay inside this runtime: read_file, file_patch, write_file, shell, run_test.
 - Do not mention tools that do not exist.
 - If todos are present, make exactly one todo in_progress.
 - Do not add commentary outside the JSON object.
@@ -49,8 +48,11 @@ The required JSON shape is:
   "summary": "short reason for the next step",
   "action": "request_tool" | "finish",
   "tool_request": {
-    "tool_type": "read_file" | "write_file" | "shell" | "run_test",
+    "tool_type": "read_file" | "file_patch" | "write_file" | "shell" | "run_test",
     "relative_path": "path/inside/repo",
+    "expected_old_snippet": "exact snippet already in the file for file_patch",
+    "new_snippet": "replacement snippet for file_patch",
+    "replace_all": false,
     "content": "full file contents for write_file",
     "command": ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"]
   }
@@ -59,8 +61,10 @@ The required JSON shape is:
 Rules:
 - Choose exactly one next action.
 - Respect the current plan and todos.
-- Prefer read_file before write_file.
+- Prefer read_file before file_patch or write_file.
+- Prefer file_patch for small, localized edits.
 - write_file must contain the full file contents, not a patch.
+- Use write_file mainly for new files or full rewrites.
 - run_test is only for local tests.
 - shell should stay conservative and read-oriented.
 - If the task is complete, return action=finish.
@@ -69,8 +73,11 @@ Rules:
 
 
 class AgentRunner:
-    def __init__(self, model_client: Any) -> None:
+    def __init__(
+        self, model_client: Any, context_builder: Optional[ContextBundleBuilder] = None
+    ) -> None:
         self.model_client = model_client
+        self.context_builder = context_builder or ContextBundleBuilder()
 
     def draft_plan(self, session: TaskSession) -> AgentPlanDraft:
         if not session.task_input:
@@ -80,7 +87,7 @@ class AgentRunner:
 
         prompt_context = {
             "task_input": session.task_input,
-            "snapshot": self._snapshot_context(session.snapshot()),
+            "snapshot": self._snapshot_context(session),
         }
         response = self.model_client.complete(
             system_prompt=_PLAN_SYSTEM_PROMPT,
@@ -113,7 +120,7 @@ class AgentRunner:
 
         prompt_context = {
             "task_input": session.task_input,
-            "snapshot": self._snapshot_context(session.snapshot()),
+            "snapshot": self._snapshot_context(session),
         }
         response = self.model_client.complete(
             system_prompt=_STEP_SYSTEM_PROMPT,
@@ -216,20 +223,8 @@ class AgentRunner:
         )
         return loop_outcome
 
-    def _snapshot_context(self, snapshot: TaskSnapshot) -> Dict[str, Any]:
-        recent_timeline = [
-            event.to_dict() for event in list(snapshot.timeline)[-8:]
-        ]
-        return {
-            "repo_path": snapshot.repo_path,
-            "permission_mode": snapshot.permission_mode,
-            "plan": snapshot.plan,
-            "todos": [todo.to_dict() for todo in snapshot.todos],
-            "pending_approvals": [approval.to_dict() for approval in snapshot.pending_approvals],
-            "latest_diff": _truncate_text(snapshot.latest_diff, limit=4000),
-            "latest_tool_result": _compact_tool_result(snapshot.latest_tool_result),
-            "recent_timeline": recent_timeline,
-        }
+    def _snapshot_context(self, session: TaskSession) -> Dict[str, Any]:
+        return self.context_builder.build(session)
 
     def _ensure_ready_for_step(self, session: TaskSession) -> None:
         if not session.task_input:
@@ -313,23 +308,6 @@ def _normalize_todos(raw_todos: Any) -> List[TodoItem]:
             status=TodoStatus.IN_PROGRESS,
         )
     return fixed
-
-
-def _compact_tool_result(result: Optional[ToolExecutionResult]) -> Optional[Dict[str, Any]]:
-    if result is None:
-        return None
-
-    payload = result.to_dict()
-    payload["stdout"] = _truncate_text(payload.get("stdout", ""), limit=4000)
-    payload["stderr"] = _truncate_text(payload.get("stderr", ""), limit=4000)
-    payload["diff"] = _truncate_text(payload.get("diff", ""), limit=4000)
-    data = dict(payload.get("data") or {})
-    if "content" in data:
-        data["content"] = _truncate_text(str(data["content"]), limit=12000)
-    payload["data"] = data
-    return payload
-
-
 def _stop_reason_for_step(outcome: AgentStepOutcome) -> Optional[str]:
     if outcome.decision.action == "finish":
         return "finished"
@@ -408,9 +386,3 @@ def _todo_sync_mode(outcome: AgentStepOutcome) -> Optional[str]:
     if outcome.tool_result.status == "executed":
         return "advance"
     return None
-
-
-def _truncate_text(value: str, limit: int) -> str:
-    if len(value) <= limit:
-        return value
-    return "{0}\n...<truncated {1} chars>...".format(value[:limit], len(value) - limit)
