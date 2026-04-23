@@ -362,3 +362,44 @@ Case outcomes:
 - `implementation_only_change`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
 - `failing_test_points_to_source`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
 - `multi_file_context_single_edit`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+
+## M3 Plan Output Hardening Checkpoint (2026-04-23)
+
+- Commit: `fd93ea9`
+- Model: `RightCode / gpt-5.4-mini`
+- Eval command source:
+  - `artifacts/eval/rightcode-gpt-5.4-mini-m3-plan-output-auto_approve_edits.json`
+  - `artifacts/eval/rightcode-gpt-5.4-mini-m3-plan-output-stop_on_request.json`
+- Notes: `Plan-stage invalid JSON/todo output now gets one bounded repair with timeline events and plan_invalid_output taxonomy. auto_approve_edits recovered to 6/6 while duplicate reads stayed at 0.0.`
+
+### auto_approve_edits
+
+- Passed: `6/6`
+- Average steps: `5.17`
+- Average duplicate reads: `0.0`
+- Cases with same-file rereads: `0`
+- Failure reasons: `{}`
+
+Case outcomes:
+- `slug_join`: `PASS`, stop=`finished`, failure=`-`
+- `clamp_lower_bound`: `PASS`, stop=`finished`, failure=`-`
+- `compact_whitespace`: `PASS`, stop=`finished`, failure=`-`
+- `implementation_only_change`: `PASS`, stop=`finished`, failure=`-`
+- `failing_test_points_to_source`: `PASS`, stop=`finished`, failure=`-`
+- `multi_file_context_single_edit`: `PASS`, stop=`finished`, failure=`-`
+
+### stop_on_request
+
+- Passed: `0/6`
+- Average steps: `3.0`
+- Average duplicate reads: `0.0`
+- Cases with same-file rereads: `0`
+- Failure reasons: `{"edit_approval_required": 6}`
+
+Case outcomes:
+- `slug_join`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `clamp_lower_bound`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `compact_whitespace`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `implementation_only_change`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `failing_test_points_to_source`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `multi_file_context_single_edit`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
