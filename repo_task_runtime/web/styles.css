@@ -199,7 +199,8 @@ button.secondary:hover {
 }
 
 .meta-pill,
-.kind-badge {
+.kind-badge,
+.state-badge {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -218,9 +219,17 @@ button.secondary:hover {
   color: var(--muted);
 }
 
-.kind-badge {
+.kind-badge,
+.state-badge {
   font-weight: 700;
   letter-spacing: 0.04em;
+}
+
+.state-badge strong {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 .kind-edit {
@@ -239,6 +248,20 @@ button.secondary:hover {
 }
 
 .kind-none {
+  color: var(--muted);
+}
+
+.state-good {
+  background: rgba(13, 107, 92, 0.12);
+  color: var(--accent-strong);
+}
+
+.state-dirty {
+  background: rgba(194, 120, 52, 0.18);
+  color: #8a4700;
+}
+
+.state-none {
   color: var(--muted);
 }
 

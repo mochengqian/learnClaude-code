@@ -63,11 +63,59 @@ function createSummaryRow(...nodes) {
   return row;
 }
 
+function createStateBadge(label, value, tone = "none") {
+  const badge = document.createElement("span");
+  badge.className = `state-badge state-${tone}`;
+  const strong = document.createElement("strong");
+  strong.textContent = `${label}:`;
+  badge.appendChild(strong);
+  badge.append(document.createTextNode(` ${value}`));
+  return badge;
+}
+
 function approvalKindFromPayload(payload) {
   if (!payload) {
     return null;
   }
   return payload.approval_kind || (payload.approval && payload.approval.approval_kind) || null;
+}
+
+function summarizeLatestSuccessfulTest(session) {
+  if (!session || !session.latest_successful_test) {
+    return {
+      badge: createStateBadge("test", "missing", "none"),
+      command: null,
+    };
+  }
+
+  const command = Array.isArray(session.latest_successful_test.command)
+    ? session.latest_successful_test.command.join(" ")
+    : String(session.latest_successful_test.command || "");
+  return {
+    badge: createStateBadge("test", "current pass", "good"),
+    command: createMetaPill("test cmd", command || "none"),
+  };
+}
+
+function summarizeLatestDiff(session) {
+  const diff = session && session.latest_diff ? session.latest_diff : "";
+  if (!diff) {
+    return createStateBadge("diff", "clean", "none");
+  }
+  return createStateBadge("diff", `${diff.length} chars`, "dirty");
+}
+
+function appendRepoStateSummary(node, session) {
+  const testSummary = summarizeLatestSuccessfulTest(session);
+  node.appendChild(
+    createSummaryRow(
+      testSummary.badge,
+      summarizeLatestDiff(session),
+    ),
+  );
+  if (testSummary.command) {
+    node.appendChild(createSummaryRow(testSummary.command));
+  }
 }
 
 function renderResultSummary(node, result) {
@@ -133,6 +181,7 @@ function renderSnapshot(session) {
   elements.snapshotSummary.appendChild(
     createSummaryRow(createMetaPill("pending approvals", String(session.pending_approvals.length))),
   );
+  appendRepoStateSummary(elements.snapshotSummary, session);
   elements.snapshotPanel.textContent = JSON.stringify(
     {
       session_id: session.session_id,
@@ -143,6 +192,8 @@ function renderSnapshot(session) {
       todos: session.todos,
       pending_approvals: session.pending_approvals.length,
       latest_tool_result: session.latest_tool_result,
+      latest_successful_test: session.latest_successful_test,
+      latest_diff_chars: session.latest_diff ? session.latest_diff.length : 0,
     },
     null,
     2,
@@ -204,6 +255,7 @@ function renderDiff(
   agent = state.latestAgent,
 ) {
   renderResultSummary(elements.latestResultSummary, result);
+  appendRepoStateSummary(elements.latestResultSummary, session);
   const resultSummary = result ? JSON.stringify(result, null, 2) : "No tool result yet.";
   const diff = session.latest_diff || "No diff yet.";
   const agentSummary = agent ? `${JSON.stringify(agent, null, 2)}\n\n--- tool result ---\n\n` : "";
