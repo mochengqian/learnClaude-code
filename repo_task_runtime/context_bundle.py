@@ -46,10 +46,10 @@ class ContextBundleBuilder:
             {
                 "command": list(item.command),
                 "exit_code": item.exit_code,
-                "stdout": _truncate_text(
+                "stdout": _truncate_test_output(
                     item.stdout, limit=self.max_test_output_chars
                 ),
-                "stderr": _truncate_text(
+                "stderr": _truncate_test_output(
                     item.stderr, limit=self.max_test_output_chars
                 ),
                 "captured_at": item.captured_at,
@@ -85,10 +85,13 @@ def _compact_tool_result(
         return None
 
     payload = result.to_dict()
-    payload["stdout"] = _truncate_text(
+    output_truncator = _truncate_text
+    if result.tool_name == "run_test" and result.exit_code not in {0, None}:
+        output_truncator = _truncate_test_output
+    payload["stdout"] = output_truncator(
         payload.get("stdout", ""), limit=max_tool_output_chars
     )
-    payload["stderr"] = _truncate_text(
+    payload["stderr"] = output_truncator(
         payload.get("stderr", ""), limit=max_tool_output_chars
     )
     payload["diff"] = _truncate_text(
@@ -105,3 +108,24 @@ def _truncate_text(value: str, limit: int) -> str:
     if len(value) <= limit:
         return value
     return "{0}\n...<truncated {1} chars>...".format(value[:limit], len(value) - limit)
+
+
+def _truncate_test_output(value: str, limit: int) -> str:
+    if len(value) <= limit:
+        return value
+
+    head_chars = max(1, limit // 3)
+    tail_chars = max(1, limit - head_chars)
+    tail_start = max(0, len(value) - tail_chars)
+    line_boundary = value.rfind("\n", max(0, tail_start - 120), tail_start)
+    if line_boundary >= 0:
+        tail_start = line_boundary + 1
+    if head_chars + (len(value) - tail_start) >= len(value):
+        return value
+
+    omitted_chars = len(value) - head_chars - (len(value) - tail_start)
+    return "{0}\n...<truncated {1} chars>...\n{2}".format(
+        value[:head_chars],
+        omitted_chars,
+        value[tail_start:],
+    )

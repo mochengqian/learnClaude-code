@@ -89,6 +89,57 @@ class BadPatchModelClient(RuleBasedEvalModelClient):
         return super().complete(system_prompt=system_prompt, user_prompt=user_prompt)
 
 
+class FailedTestContextMissingEvalModelClient(RuleBasedEvalModelClient):
+    def __init__(self) -> None:
+        self.step_index = 0
+
+    def complete(self, *, system_prompt: str, user_prompt: str) -> ModelResponse:
+        if "repo-task planning assistant" in system_prompt:
+            return super().complete(system_prompt=system_prompt, user_prompt=user_prompt)
+
+        self.step_index += 1
+        if self.step_index in {1, 4, 7}:
+            payload = {
+                "summary": "Run the tests again to inspect the failure.",
+                "action": "request_tool",
+                "tool_request": {
+                    "tool_type": "run_test",
+                    "command": [
+                        "python3",
+                        "-m",
+                        "unittest",
+                        "discover",
+                        "-s",
+                        "tests",
+                        "-v",
+                    ],
+                },
+            }
+        elif self.step_index in {2, 5, 8}:
+            payload = {
+                "summary": "Read the failing discount test again.",
+                "action": "request_tool",
+                "tool_request": {
+                    "tool_type": "read_file",
+                    "relative_path": "tests/test_discounts.py",
+                },
+            }
+        else:
+            payload = {
+                "summary": "Read the discounts source again.",
+                "action": "request_tool",
+                "tool_request": {
+                    "tool_type": "read_file",
+                    "relative_path": "demo_app/discounts.py",
+                },
+            }
+        return ModelResponse(
+            text=json.dumps(payload),
+            model="gpt-5.4-mini-test",
+            usage={"total_tokens": 111},
+        )
+
+
 class MissingPathEvalModelClient(RuleBasedEvalModelClient):
     def complete(self, *, system_prompt: str, user_prompt: str) -> ModelResponse:
         if "repo-task planning assistant" in system_prompt:
@@ -205,6 +256,15 @@ class TransportFailureEvalModelClient(RuleBasedEvalModelClient):
             return super().complete(system_prompt=system_prompt, user_prompt=user_prompt)
         raise ModelClientError(
             "Model request failed after 2 attempts: EOF occurred in violation of protocol (_ssl.c:1129)"
+        )
+
+
+class ProviderResponseFailureEvalModelClient(RuleBasedEvalModelClient):
+    def complete(self, *, system_prompt: str, user_prompt: str) -> ModelResponse:
+        if "repo-task planning assistant" in system_prompt:
+            return super().complete(system_prompt=system_prompt, user_prompt=user_prompt)
+        raise ModelClientError(
+            "Model provider response invalid after 2 attempts: response body was not valid JSON."
         )
 
 
@@ -424,8 +484,8 @@ class EvalPackTest(unittest.TestCase):
         report = runner.run_case(get_builtin_eval_case("slug_join"))
 
         self.assertFalse(report.success)
-        self.assertEqual("tool_failed", report.stop_reason)
-        self.assertEqual("bad_patch", report.failure_reason)
+        self.assertEqual("runner_failed", report.stop_reason)
+        self.assertEqual("bad_patch_snippet", report.failure_reason)
 
     def test_collect_context_bundle_case_metrics_tracks_same_file_rereads(self):
         case = get_builtin_eval_case("slug_join")
@@ -511,6 +571,30 @@ class EvalPackTest(unittest.TestCase):
         self.assertFalse(report.success)
         self.assertEqual("runner_failed", report.stop_reason)
         self.assertEqual("model_transport_failed", report.failure_reason)
+
+    def test_eval_runner_classifies_model_provider_response_failures(self):
+        runner = EvalRunner(
+            agent_runner=AgentRunner(ProviderResponseFailureEvalModelClient()),
+            approval_mode=APPROVAL_MODE_AUTO_APPROVE_EDITS,
+        )
+
+        report = runner.run_case(get_builtin_eval_case("slug_join"))
+
+        self.assertFalse(report.success)
+        self.assertEqual("runner_failed", report.stop_reason)
+        self.assertEqual("model_provider_response_invalid", report.failure_reason)
+
+    def test_eval_runner_classifies_failed_test_context_missing(self):
+        runner = EvalRunner(
+            agent_runner=AgentRunner(FailedTestContextMissingEvalModelClient()),
+            approval_mode=APPROVAL_MODE_AUTO_APPROVE_EDITS,
+        )
+
+        report = runner.run_case(get_builtin_eval_case("failing_test_points_to_source"))
+
+        self.assertFalse(report.success)
+        self.assertEqual("max_steps_reached", report.stop_reason)
+        self.assertEqual("failed_test_context_missing", report.failure_reason)
 
     def test_eval_runner_classifies_plan_invalid_output_failures(self):
         runner = EvalRunner(

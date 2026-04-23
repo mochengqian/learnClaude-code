@@ -10,8 +10,10 @@ from repo_task_runtime import (
     FileReadRequest,
     FilePatchRequest,
     ModelResponse,
+    RecentTestFailure,
     TaskWorkbench,
     TestCommandRequest,
+    ToolExecutionResult,
 )
 
 
@@ -185,6 +187,53 @@ class ContextBundleTest(unittest.TestCase):
             ["README.md", "demo_app/app.py"],
             bundle["read_focus"]["recent_context_paths"],
         )
+
+    def test_builder_preserves_failed_test_output_tail_for_assertions(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+
+        stderr = (
+            "header\n"
+            + ("ok\n" * 200)
+            + "FAIL: test_label (tests.test_app.AppTest.test_label)\n"
+            + "AssertionError: 'good' != 'bad'\n"
+        )
+        session.recent_test_failures = [
+            RecentTestFailure(
+                command=("python3", "-m", "unittest", "discover", "-s", "tests", "-v"),
+                exit_code=1,
+                stderr=stderr,
+            )
+        ]
+        session.latest_tool_result = ToolExecutionResult(
+            status="executed",
+            tool_name="run_test",
+            message="Command completed.",
+            exit_code=1,
+            stderr=stderr,
+            data={
+                "command": [
+                    "python3",
+                    "-m",
+                    "unittest",
+                    "discover",
+                    "-s",
+                    "tests",
+                    "-v",
+                ]
+            },
+        )
+
+        bundle = ContextBundleBuilder(max_test_output_chars=120).build(session)
+
+        test_failure_stderr = bundle["recent_test_failures"][0]["stderr"]
+        latest_result_stderr = bundle["latest_tool_result"]["stderr"]
+        self.assertIn("header", test_failure_stderr)
+        self.assertIn("FAIL: test_label", test_failure_stderr)
+        self.assertIn("AssertionError", test_failure_stderr)
+        self.assertIn("...<truncated", test_failure_stderr)
+        self.assertIn("FAIL: test_label", latest_result_stderr)
+        self.assertIn("AssertionError", latest_result_stderr)
 
     def test_agent_step_prompt_includes_context_bundle(self):
         temp_dir, session = self.make_session()

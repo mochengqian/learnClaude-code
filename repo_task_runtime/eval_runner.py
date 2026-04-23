@@ -111,6 +111,7 @@ class EvalRunner:
                     stop_reason=stop_reason,
                     verification=verification,
                     last_failure_message=last_failure_message,
+                    session=session,
                 )
             session.record_event(
                 "eval_case_completed",

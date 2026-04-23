@@ -1,3 +1,4 @@
+import json
 import subprocess
 import tempfile
 import unittest
@@ -57,6 +58,56 @@ class FakeModelClient:
             raise AssertionError("No fake model responses remaining.")
         return ModelResponse(
             text=self.responses.pop(0),
+            model="gpt-5.4-mini-test",
+            usage={"total_tokens": 123},
+        )
+
+
+class ReadmePatchRepairAnchorModelClient:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def complete(self, *, system_prompt: str, user_prompt: str) -> ModelResponse:
+        self.calls += 1
+        if self.calls == 1:
+            return ModelResponse(
+                text=(
+                    '{"summary":"Patch the README checkpoint line.",'
+                    '"action":"request_tool",'
+                    '"tool_request":{'
+                    '"tool_type":"file_patch",'
+                    '"relative_path":"README.md",'
+                    '"expected_old_snippet":"Current remote checkpoint: 431d58c",'
+                    '"new_snippet":"Current remote checkpoint: `3e138e7`"'
+                    "}}"
+                ),
+                model="gpt-5.4-mini-test",
+                usage={"total_tokens": 123},
+            )
+
+        payload = json.loads(user_prompt)
+        repair = payload["repair_request"]["patch_contract_repair"]
+        anchor = repair["recent_read_anchor"]
+        if repair["patch_target_path"] != "README.md":
+            raise AssertionError("Patch repair did not preserve the README target.")
+        if repair["attempted_expected_old_snippet"] != "Current remote checkpoint: 431d58c":
+            raise AssertionError("Patch repair did not expose the attempted snippet.")
+        if anchor["anchor_line"] != "Current remote checkpoint: `431d58c`":
+            raise AssertionError("Patch repair did not expose the exact anchor line.")
+        if "Current remote checkpoint: `431d58c`" not in anchor["excerpt"]:
+            raise AssertionError("Patch repair did not include the anchor excerpt.")
+
+        return ModelResponse(
+            text=(
+                '{"summary":"Patch the README checkpoint with the exact anchor line.",'
+                '"action":"request_tool",'
+                '"tool_request":{'
+                '"tool_type":"file_patch",'
+                '"relative_path":"README.md",'
+                '"expected_old_snippet":"Current remote checkpoint: `431d58c`",'
+                '"new_snippet":"Current remote checkpoint: `3e138e7`"'
+                "}}"
+            ),
             model="gpt-5.4-mini-test",
             usage={"total_tokens": 123},
         )
@@ -965,6 +1016,129 @@ class AgentRunnerTest(unittest.TestCase):
             "agent_step_output_patch_contract_second_chance_requested",
             event_types,
         )
+
+    def test_run_next_step_repairs_missing_patch_snippet_before_approval(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        session.update_plan("1. Inspect\n2. Fix\n3. Test")
+        session.approve_plan()
+        self.seed_todos(session)
+        source_dir = session.repo_path / "demo_app"
+        source_dir.mkdir()
+        (source_dir / "string_tools.py").write_text(
+            'def slugify_title(value: str) -> str:\n    return value.replace(" ", "_")\n',
+            encoding="utf-8",
+        )
+        read_result = session.request_tool(
+            FileReadRequest(relative_path="demo_app/string_tools.py")
+        )
+        self.assertEqual("executed", read_result.status)
+        runner = AgentRunner(
+            FakeModelClient(
+                [
+                    (
+                        '{"summary":"Patch with a made-up snippet.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{'
+                        '"tool_type":"file_patch",'
+                        '"relative_path":"demo_app/string_tools.py",'
+                        '"expected_old_snippet":"return value.slugify()",'
+                        '"new_snippet":"return value.replace(\\" \\", \\"-\\")"'
+                        "}}"
+                    ),
+                    (
+                        '{"summary":"Still use the made-up snippet.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{'
+                        '"tool_type":"file_patch",'
+                        '"relative_path":"demo_app/string_tools.py",'
+                        '"expected_old_snippet":"return value.slugify()",'
+                        '"new_snippet":"return value.replace(\\" \\", \\"-\\")"'
+                        "}}"
+                    ),
+                    (
+                        '{"summary":"Patch with the exact existing snippet.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{'
+                        '"tool_type":"file_patch",'
+                        '"relative_path":"demo_app/string_tools.py",'
+                        '"expected_old_snippet":"return value.replace(\\" \\", \\"_\\")",'
+                        '"new_snippet":"return value.replace(\\" \\", \\"-\\")"'
+                        "}}"
+                    ),
+                ]
+            )
+        )
+
+        outcome = runner.run_next_step(session)
+
+        self.assertEqual("request_tool", outcome.decision.action)
+        self.assertEqual("approval_required", outcome.tool_result.status)
+        self.assertEqual("file_patch", outcome.tool_result.tool_name)
+        self.assertEqual(1, len(session.pending_approvals))
+        self.assertEqual(
+            1,
+            [event.event_type for event in session.timeline].count("approval_requested"),
+        )
+        event_types = [event.event_type for event in session.timeline]
+        self.assertIn(
+            "agent_step_output_patch_contract_second_chance_requested",
+            event_types,
+        )
+        self.assertNotIn("tool_failed", event_types)
+        event_payloads = [
+            event.payload
+            for event in session.timeline
+            if event.event_type == "agent_step_output_invalid"
+        ]
+        self.assertTrue(
+            any(
+                "expected_old_snippet was not found" in payload.get("error", "")
+                for payload in event_payloads
+            )
+        )
+
+    def test_run_next_step_uses_recent_read_anchor_for_doc_patch_repair(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        repo_path = Path(temp_dir.name)
+        init_git_repo(repo_path)
+        (repo_path / "README.md").write_text(
+            "# Runtime\n"
+            "\n"
+            "## M3 Closeout\n"
+            "Current remote checkpoint: `431d58c`\n"
+            "Next stage: M4 pilot\n",
+            encoding="utf-8",
+        )
+        session = TaskWorkbench().create_session(repo_path)
+        session.begin_task(
+            "Update README.md only: change the current remote checkpoint from "
+            "431d58c to 3e138e7."
+        )
+        session.update_plan("1. Inspect\n2. Fix\n3. Test")
+        session.approve_plan()
+        self.seed_todos(session)
+        read_result = session.request_tool(FileReadRequest(relative_path="README.md"))
+        self.assertEqual("executed", read_result.status)
+
+        runner = AgentRunner(
+            ReadmePatchRepairAnchorModelClient(),
+            max_output_retries=0,
+        )
+
+        outcome = runner.run_next_step(session)
+
+        self.assertEqual("request_tool", outcome.decision.action)
+        self.assertEqual("approval_required", outcome.tool_result.status)
+        self.assertEqual("file_patch", outcome.tool_result.tool_name)
+        self.assertEqual(1, len(session.pending_approvals))
+        event_types = [event.event_type for event in session.timeline]
+        self.assertIn(
+            "agent_step_output_patch_contract_second_chance_requested",
+            event_types,
+        )
+        self.assertIn("agent_step_output_repaired", event_types)
 
     def test_run_next_step_allows_file_patch_after_recent_read(self):
         temp_dir, session = self.make_session()

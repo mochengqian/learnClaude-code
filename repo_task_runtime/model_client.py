@@ -15,6 +15,10 @@ class ModelClientError(RuntimeError):
     pass
 
 
+class _ProviderResponseError(RuntimeError):
+    pass
+
+
 RETRYABLE_HTTP_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504})
 RETRYABLE_TRANSPORT_KEYWORDS = (
     "connection aborted",
@@ -63,8 +67,6 @@ class OpenAICompatibleModelClient:
             ],
         }
         max_attempts = max(1, self.config.max_retries + 1)
-        raw_body = ""
-
         for attempt in range(1, max_attempts + 1):
             request = Request(
                 url="{0}/chat/completions".format(self.config.normalized_base_url()),
@@ -78,8 +80,15 @@ class OpenAICompatibleModelClient:
 
             try:
                 with urlopen(request, timeout=self.config.timeout_seconds) as response:
-                    raw_body = response.read().decode("utf-8")
-                break
+                    raw_body = self._decode_response_body(response.read())
+                parsed = self._parse_provider_response(raw_body)
+                content = self._extract_assistant_content(parsed)
+                return ModelResponse(
+                    text=content,
+                    model=str(parsed.get("model") or self.config.model),
+                    usage=dict(parsed.get("usage") or {}),
+                    raw_response=parsed,
+                )
             except HTTPError as exc:
                 body = exc.read().decode("utf-8", errors="replace")
                 if self._should_retry_http_error(exc.code) and attempt < max_attempts:
@@ -101,29 +110,30 @@ class OpenAICompatibleModelClient:
                     self._sleep_before_retry(attempt)
                     continue
                 raise self._request_failure(reason, attempt) from exc
+            except _ProviderResponseError as exc:
+                if attempt < max_attempts:
+                    self._sleep_before_retry(attempt)
+                    continue
+                raise self._provider_response_failure(str(exc), attempt) from exc
 
-        try:
-            parsed = json.loads(raw_body)
-        except json.JSONDecodeError as exc:
-            raise ModelClientError("Model returned invalid JSON.") from exc
-
-        try:
-            content = parsed["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError) as exc:
-            raise ModelClientError("Model response did not contain assistant content.") from exc
-
-        return ModelResponse(
-            text=content,
-            model=str(parsed.get("model") or self.config.model),
-            usage=dict(parsed.get("usage") or {}),
-            raw_response=parsed,
-        )
+        raise AssertionError("unreachable")
 
     def _request_failure(self, message: str, attempt: int) -> ModelClientError:
         if attempt <= 1:
             return ModelClientError("Model request failed: {0}".format(message))
         return ModelClientError(
             "Model request failed after {0} attempts: {1}".format(attempt, message)
+        )
+
+    def _provider_response_failure(self, message: str, attempt: int) -> ModelClientError:
+        if attempt <= 1:
+            return ModelClientError(
+                "Model provider response invalid: {0}".format(message)
+            )
+        return ModelClientError(
+            "Model provider response invalid after {0} attempts: {1}".format(
+                attempt, message
+            )
         )
 
     def _should_retry_http_error(self, status_code: int) -> bool:
@@ -149,6 +159,57 @@ class OpenAICompatibleModelClient:
         if isinstance(error, URLError):
             return self._describe_transport_error(error.reason)
         return str(error)
+
+    def _decode_response_body(self, raw_body: bytes) -> str:
+        try:
+            return raw_body.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise _ProviderResponseError("response body was not valid UTF-8.") from exc
+
+    def _parse_provider_response(self, raw_body: str) -> Dict[str, Any]:
+        if not raw_body.strip():
+            raise _ProviderResponseError("response body was empty.")
+        try:
+            parsed = json.loads(raw_body)
+        except json.JSONDecodeError as exc:
+            raise _ProviderResponseError("response body was not valid JSON.") from exc
+        if not isinstance(parsed, dict):
+            raise _ProviderResponseError("response body was not a JSON object.")
+        return parsed
+
+    def _extract_assistant_content(self, parsed: Dict[str, Any]) -> str:
+        try:
+            content = parsed["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise _ProviderResponseError(
+                "assistant content was missing from provider response."
+            ) from exc
+        return self._coerce_assistant_content(content)
+
+    def _coerce_assistant_content(self, content: object) -> str:
+        if isinstance(content, str):
+            return content
+        if isinstance(content, dict):
+            text = content.get("text")
+            if isinstance(text, str):
+                return text
+        if isinstance(content, list):
+            parts = []
+            for item in content:
+                if isinstance(item, str):
+                    parts.append(item)
+                    continue
+                if not isinstance(item, dict):
+                    continue
+                item_type = str(item.get("type") or "").strip().lower()
+                text = item.get("text")
+                if isinstance(text, str) and item_type in {"", "text", "output_text"}:
+                    parts.append(text)
+            if parts:
+                return "".join(parts)
+        raise _ProviderResponseError(
+            "assistant content was not a supported text payload."
+        )
 
     def _sleep_before_retry(self, attempt: int) -> None:
         if self.config.retry_backoff_milliseconds <= 0:

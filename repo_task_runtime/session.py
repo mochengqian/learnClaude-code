@@ -128,6 +128,7 @@ class TaskSession:
     def request_tool(self, request: ToolInvocationRequest) -> ToolExecutionResult:
         decision = self.approval_policy.evaluate(self.permission_mode, request)
         tool_name = tool_name_for_request(request)
+        approval_kind = approval_kind_for_request(request)
 
         if decision.behavior == "deny":
             self._record(
@@ -144,9 +145,29 @@ class TaskSession:
             self.latest_tool_result = result
             return result
 
+        pre_approval_error = self._validate_request_before_approval(request)
+        if pre_approval_error is not None:
+            self._record(
+                "tool_failed",
+                tool_name=tool_name,
+                approved_by=None,
+                approval_kind=(
+                    approval_kind.value if approval_kind is not None else None
+                ),
+                request=request_summary(request),
+                message=pre_approval_error,
+            )
+            result = ToolExecutionResult(
+                status="failed",
+                tool_name=tool_name,
+                message=pre_approval_error,
+                approval_kind=approval_kind,
+            )
+            self.latest_tool_result = result
+            return result
+
         if decision.behavior == "ask":
             approval_id = uuid4().hex
-            approval_kind = approval_kind_for_request(request)
             if approval_kind is None:
                 raise ValueError(
                     "Approval kind is missing for tool request: {0}".format(tool_name)
@@ -380,6 +401,9 @@ class TaskSession:
                     "Model returned a no-op file_patch for {0}: new_snippet must "
                     "differ from expected_old_snippet so the edit produces a diff."
                 ).format(request.relative_path)
+            expected_snippet_error = self._validate_file_patch_expected_snippet(request)
+            if expected_snippet_error is not None:
+                return expected_snippet_error
         return None
 
     def build_read_focus_snapshot(self) -> Dict[str, object]:
@@ -1039,3 +1063,31 @@ class TaskSession:
         if self.recent_test_failures:
             return False
         return True
+
+    def _validate_request_before_approval(
+        self, request: ToolInvocationRequest
+    ) -> Optional[str]:
+        if not isinstance(request, FilePatchRequest):
+            return None
+        return self._validate_file_patch_expected_snippet(request)
+
+    def _validate_file_patch_expected_snippet(
+        self, request: FilePatchRequest
+    ) -> Optional[str]:
+        try:
+            resolved_path = self._resolve_repo_path(request.relative_path)
+        except ValueError:
+            return None
+
+        if not resolved_path.exists() or not resolved_path.is_file():
+            return None
+
+        old_content = resolved_path.read_text(encoding="utf-8")
+        if request.expected_old_snippet in old_content:
+            return None
+
+        return (
+            "Model returned a bad patch snippet for file_patch: "
+            "expected_old_snippet was not found in {0}. Use an exact existing "
+            "snippet from that repo file, or read the file again before patching."
+        ).format(request.relative_path)

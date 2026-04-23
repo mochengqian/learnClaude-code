@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List, Sequence
+from typing import Dict, List, Optional, Sequence
 
 from .eval_types import (
     ContextBundleCaseMetrics,
@@ -114,10 +114,17 @@ def derive_failure_reason(
     stop_reason: str,
     verification: ToolExecutionResult,
     last_failure_message: str,
+    session: TaskSession,
 ) -> str:
     if stop_reason == "approval_required":
         return _classify_approval_required(last_failure_message)
     if stop_reason == "max_steps_reached":
+        stalled_failure_reason = _classify_max_steps_failure(
+            session=session,
+            verification=verification,
+        )
+        if stalled_failure_reason is not None:
+            return stalled_failure_reason
         return "max_steps_reached"
     if stop_reason == "tool_blocked":
         return "tool_blocked"
@@ -137,6 +144,8 @@ def classify_runner_failure(last_failure_message: str) -> str:
 
     if _is_model_transport_failure(message):
         return "model_transport_failed"
+    if _is_model_provider_response_failure(message):
+        return "model_provider_response_invalid"
     if "plan output invalid" in message:
         return "plan_invalid_output"
     if "rereading readme.md" in message:
@@ -159,6 +168,10 @@ def classify_runner_failure(last_failure_message: str) -> str:
         return "directory_path"
     if "missing repo file for" in message:
         return "missing_repo_file"
+    if "bad patch snippet for file_patch" in message:
+        return "bad_patch_snippet"
+    if "expected_old_snippet was not found in" in message:
+        return "bad_patch_snippet"
     if "no-op file_patch" in message:
         return "no_op_patch"
     if "invalid finish action" in message:
@@ -176,8 +189,10 @@ def classify_runner_failure(last_failure_message: str) -> str:
 
 def _classify_tool_failure(last_failure_message: str) -> str:
     message = last_failure_message.strip().lower()
+    if "bad patch snippet for file_patch" in message:
+        return "bad_patch_snippet"
     if "expected_old_snippet" in message:
-        return "bad_patch"
+        return "bad_patch_snippet"
     if "file_patch produced no changes for " in message:
         return "no_op_patch"
     return "tool_failed"
@@ -194,12 +209,45 @@ def _classify_approval_required(last_failure_message: str) -> str:
     return "approval_required"
 
 
+def _classify_max_steps_failure(
+    *, session: TaskSession, verification: ToolExecutionResult
+) -> Optional[str]:
+    if not session.recent_test_failures:
+        return None
+    if verification.status != "executed":
+        return None
+    if verification.exit_code in {0, None}:
+        return None
+    if session.latest_diff:
+        return None
+
+    context_metrics = collect_context_bundle_case_metrics(session)
+    if not context_metrics.same_file_reread_detected:
+        return None
+
+    run_test_calls = sum(
+        1
+        for event in session.timeline
+        if event.event_type == "tool_executed"
+        and event.payload.get("tool_name") == "run_test"
+    )
+    if run_test_calls < 2:
+        return None
+    return "failed_test_context_missing"
+
+
 def _is_model_transport_failure(message: str) -> bool:
     if "model request failed" not in message:
         return False
     if any(keyword in message for keyword in TRANSPORT_FAILURE_KEYWORDS):
         return True
     return any(code in message for code in TRANSPORT_FAILURE_HTTP_CODES)
+
+
+def _is_model_provider_response_failure(message: str) -> bool:
+    if "model provider response invalid" in message:
+        return True
+    return "model response did not contain assistant content." in message
 
 
 def stop_reason_for_result(result: ToolExecutionResult) -> str:

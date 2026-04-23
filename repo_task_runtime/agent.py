@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import difflib
 import json
+from pathlib import Path
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -497,6 +499,7 @@ class AgentRunner:
                 "patch_contract_repair": self._build_patch_contract_repair(
                     session=session,
                     validation_error=validation_error,
+                    previous_output=previous_output,
                 ),
             },
         }
@@ -588,25 +591,81 @@ class AgentRunner:
         lowered = validation_error.lower()
         return (
             "no-op file_patch" in lowered
+            or "bad patch snippet for file_patch" in lowered
+            or "expected_old_snippet was not found in" in lowered
             or "expected_old_snippet cannot be empty" in lowered
             or "expected_old_snippet is required for file_patch" in lowered
             or "new_snippet is required for file_patch" in lowered
         )
 
     def _build_patch_contract_repair(
-        self, *, session: TaskSession, validation_error: str
+        self,
+        *,
+        session: TaskSession,
+        validation_error: str,
+        previous_output: str,
     ) -> Optional[Dict[str, Any]]:
         if not self._is_patch_contract_error(validation_error):
             return None
 
+        attempted_request = self._extract_patch_contract_request(previous_output)
+        attempted_target_path = None
+        attempted_expected_old_snippet = None
+        attempted_new_snippet = None
+        if attempted_request:
+            attempted_target_path = attempted_request.get("relative_path")
+            attempted_expected_old_snippet = attempted_request.get(
+                "expected_old_snippet"
+            )
+            attempted_new_snippet = attempted_request.get("new_snippet")
+
         read_focus = session.build_read_focus_snapshot()
         primary_target_path = read_focus.get("primary_target_path")
+        patch_target_path = (
+            self._extract_patch_contract_relative_path(validation_error)
+            or attempted_target_path
+            or primary_target_path
+        )
+        recent_read_anchor = None
+        if patch_target_path:
+            recent_read_anchor = self._build_patch_contract_recent_read_anchor(
+                session=session,
+                relative_path=patch_target_path,
+                query=(
+                    attempted_expected_old_snippet
+                    or session.task_input
+                    or patch_target_path
+                ),
+            )
         instruction = (
             "The previous file_patch broke the patch contract. Return corrected "
             "JSON only using the same schema. expected_old_snippet must be a "
             "non-empty exact snippet from the target file, new_snippet must differ "
             "from expected_old_snippet, and the edit must produce a repo diff."
         )
+        if "expected_old_snippet was not found in" in validation_error.lower():
+            instruction += (
+                " The previous expected_old_snippet does not exist in the current "
+                "repo file. Do not invent or approximate the snippet."
+            )
+        if patch_target_path:
+            instruction += " Keep the patch target on {0}.".format(patch_target_path)
+        if recent_read_anchor:
+            instruction += (
+                " Use recent_read_anchor as the source of truth and copy "
+                "expected_old_snippet exactly from that excerpt instead of "
+                "paraphrasing it."
+            )
+            anchor_line = str(recent_read_anchor.get("anchor_line") or "").strip()
+            anchor_line_number = recent_read_anchor.get("anchor_line_number")
+            if anchor_line and anchor_line_number is not None:
+                instruction += (
+                    " For a single-line patch, prefer the exact anchor_line at line "
+                    "{0}: {1}."
+                ).format(anchor_line_number, _preview_text(anchor_line, limit=140))
+            instruction += (
+                " Keep new_snippet focused on the same local area as that anchor."
+            )
         if primary_target_path:
             instruction += (
                 " Prefer patching the current primary target {0}. If you cannot "
@@ -621,6 +680,10 @@ class AgentRunner:
 
         return {
             "primary_target_path": primary_target_path,
+            "patch_target_path": patch_target_path,
+            "attempted_expected_old_snippet": attempted_expected_old_snippet,
+            "attempted_new_snippet": attempted_new_snippet,
+            "recent_read_anchor": recent_read_anchor,
             "instruction": instruction,
         }
 
@@ -931,6 +994,196 @@ class AgentRunner:
             return None
         return match.group(1).strip()
 
+    def _extract_patch_contract_relative_path(
+        self, validation_error: str
+    ) -> Optional[str]:
+        match = re.search(
+            r"expected_old_snippet was not found in ([^\s]+)\.",
+            validation_error,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            return None
+        return match.group(1).strip()
+
+    def _extract_patch_contract_request(
+        self, previous_output: str
+    ) -> Optional[Dict[str, str]]:
+        try:
+            payload = _parse_json_object(previous_output)
+        except ModelClientError:
+            return None
+
+        tool_payload = payload.get("tool_request")
+        if not isinstance(tool_payload, dict):
+            return None
+        if str(tool_payload.get("tool_type") or "").strip() != "file_patch":
+            return None
+
+        request: Dict[str, str] = {}
+        for field_name in ("relative_path", "expected_old_snippet", "new_snippet"):
+            raw_value = tool_payload.get(field_name)
+            if raw_value is None:
+                continue
+            request[field_name] = str(raw_value)
+        return request or None
+
+    def _build_patch_contract_recent_read_anchor(
+        self, *, session: TaskSession, relative_path: str, query: str
+    ) -> Optional[Dict[str, Any]]:
+        recent_context = self._find_recent_file_context_for_path(
+            session=session,
+            relative_path=relative_path,
+        )
+        if recent_context is None:
+            return None
+
+        anchor = self._select_patch_anchor_from_content(
+            content=recent_context.content,
+            query=query,
+        )
+        if anchor is None:
+            return None
+
+        anchor["relative_path"] = Path(recent_context.relative_path).as_posix()
+        anchor["source_tool"] = recent_context.source_tool
+        anchor["captured_at"] = recent_context.captured_at
+        return anchor
+
+    def _find_recent_file_context_for_path(
+        self, *, session: TaskSession, relative_path: str
+    ) -> Optional[Any]:
+        normalized_relative_path = Path(relative_path).as_posix()
+        fallback = None
+        for item in reversed(session.recent_file_contexts):
+            if Path(item.relative_path).as_posix() != normalized_relative_path:
+                continue
+            if fallback is None:
+                fallback = item
+            if item.source_tool == "read_file":
+                return item
+        return fallback
+
+    def _select_patch_anchor_from_content(
+        self, *, content: str, query: str
+    ) -> Optional[Dict[str, Any]]:
+        lines = content.splitlines()
+        if not lines:
+            stripped = content.strip()
+            if not stripped:
+                return None
+            return {
+                "start_line": 1,
+                "end_line": 1,
+                "anchor_line_number": 1,
+                "anchor_line": stripped,
+                "excerpt": stripped,
+            }
+
+        start_line_index, end_line_index, anchor_line_index = (
+            self._best_patch_anchor_span(lines, query)
+        )
+        excerpt_start = max(0, start_line_index - 1)
+        excerpt_end = min(len(lines), end_line_index + 1)
+        excerpt = "\n".join(lines[excerpt_start:excerpt_end]).strip("\n")
+        if not excerpt:
+            excerpt = "\n".join(lines[start_line_index:end_line_index]).strip("\n")
+
+        return {
+            "start_line": excerpt_start + 1,
+            "end_line": excerpt_end,
+            "anchor_line_number": anchor_line_index + 1,
+            "anchor_line": lines[anchor_line_index],
+            "excerpt": excerpt,
+        }
+
+    def _best_patch_anchor_span(
+        self, lines: List[str], query: str
+    ) -> Tuple[int, int, int]:
+        non_empty_indexes = [index for index, line in enumerate(lines) if line.strip()]
+        if not non_empty_indexes:
+            return (0, 1, 0)
+
+        normalized_query = _normalize_text_for_match(query)
+        if not normalized_query:
+            first_non_empty = non_empty_indexes[0]
+            return (first_non_empty, first_non_empty + 1, first_non_empty)
+
+        query_line_count = max(1, min(4, query.count("\n") + 1))
+        window_sizes = sorted(
+            {
+                1,
+                query_line_count,
+                min(len(lines), query_line_count + 1),
+                min(len(lines), query_line_count + 2),
+            }
+        )
+
+        best_score = -1.0
+        best_span = (non_empty_indexes[0], non_empty_indexes[0] + 1, non_empty_indexes[0])
+
+        for window_size in window_sizes:
+            for start in range(0, len(lines) - window_size + 1):
+                candidate_lines = lines[start : start + window_size]
+                candidate_text = "\n".join(candidate_lines).strip()
+                if not candidate_text:
+                    continue
+                score = self._patch_anchor_match_score(
+                    candidate_text, normalized_query
+                )
+                anchor_offset = max(
+                    range(len(candidate_lines)),
+                    key=lambda index: self._patch_anchor_match_score(
+                        candidate_lines[index], normalized_query
+                    ),
+                )
+                candidate_span = (start, start + window_size, start + anchor_offset)
+                if score > best_score:
+                    best_score = score
+                    best_span = candidate_span
+                    continue
+                if score == best_score and window_size < (
+                    best_span[1] - best_span[0]
+                ):
+                    best_span = candidate_span
+
+        return best_span
+
+    def _patch_anchor_match_score(self, candidate: str, normalized_query: str) -> float:
+        normalized_candidate = _normalize_text_for_match(candidate)
+        if not normalized_candidate:
+            return 0.0
+        if not normalized_query:
+            return 0.1
+
+        ratio = difflib.SequenceMatcher(
+            None, normalized_candidate, normalized_query
+        ).ratio()
+        query_tokens = _text_tokens_for_match(normalized_query)
+        candidate_tokens = _text_tokens_for_match(normalized_candidate)
+        shared_tokens = query_tokens & candidate_tokens
+        overlap_score = 0.0
+        if query_tokens:
+            overlap_score = len(shared_tokens) / len(query_tokens)
+
+        query_digit_tokens = {
+            token for token in query_tokens if any(char.isdigit() for char in token)
+        }
+        digit_overlap_score = 0.0
+        if query_digit_tokens:
+            digit_overlap_score = len(query_digit_tokens & candidate_tokens) / len(
+                query_digit_tokens
+            )
+
+        containment_bonus = 0.0
+        if (
+            normalized_query in normalized_candidate
+            or normalized_candidate in normalized_query
+        ):
+            containment_bonus = 0.2
+
+        return ratio + overlap_score + digit_overlap_score + containment_bonus
+
 
 def _parse_json_object(raw_text: str) -> Dict[str, Any]:
     cleaned = raw_text.strip()
@@ -955,6 +1208,24 @@ def _parse_json_object(raw_text: str) -> Dict[str, Any]:
     if not isinstance(parsed, dict):
         raise ModelClientError("Model output must be a JSON object.")
     return parsed
+
+
+def _normalize_text_for_match(value: str) -> str:
+    return " ".join(value.strip().lower().split())
+
+
+def _text_tokens_for_match(value: str) -> set[str]:
+    return {
+        token
+        for token in re.split(r"[^a-z0-9]+", value.lower())
+        if len(token) >= 2
+    }
+
+
+def _preview_text(value: str, *, limit: int) -> str:
+    if len(value) <= limit:
+        return value
+    return "{0}...".format(value[: max(0, limit - 3)])
 
 
 def _normalize_todos(raw_todos: Any) -> List[TodoItem]:

@@ -104,6 +104,30 @@ class TaskRuntimeTest(unittest.TestCase):
         self.assertIn('+value = "updated"', executed.diff)
         self.assertIn('other = "same"', target.read_text(encoding="utf-8"))
 
+    def test_file_patch_missing_snippet_fails_before_requesting_approval(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        session.approve_plan()
+
+        target = session.repo_path / "module.py"
+        target.write_text('value = "same"\n', encoding="utf-8")
+
+        result = session.request_tool(
+            FilePatchRequest(
+                relative_path="module.py",
+                expected_old_snippet='value = "missing"',
+                new_snippet='value = "updated"',
+            )
+        )
+
+        self.assertEqual("failed", result.status)
+        self.assertIn("bad patch snippet", result.message)
+        self.assertIn("expected_old_snippet was not found", result.message)
+        self.assertEqual([], list(session.pending_approvals.values()))
+        event_types = [event.event_type for event in session.timeline]
+        self.assertNotIn("approval_requested", event_types)
+        self.assertIn("tool_failed", event_types)
+
     def test_edit_approval_kind_is_structured_in_snapshot_and_timeline(self):
         temp_dir, session = self.make_session()
         self.addCleanup(temp_dir.cleanup)

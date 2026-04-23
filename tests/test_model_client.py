@@ -28,6 +28,20 @@ class _FakeHTTPResponse:
         return json.dumps(self.payload).encode("utf-8")
 
 
+class _FakeRawHTTPResponse:
+    def __init__(self, payload: bytes):
+        self.payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def read(self):
+        return self.payload
+
+
 class ModelClientTest(unittest.TestCase):
     def _make_client(self, **overrides):
         config = ModelClientConfig(
@@ -77,6 +91,74 @@ class ModelClientTest(unittest.TestCase):
         self.assertEqual(2, urlopen_mock.call_count)
         self.assertIn("after 2 attempts", str(ctx.exception))
         self.assertIn("EOF occurred in violation of protocol", str(ctx.exception))
+
+    def test_complete_retries_invalid_provider_json_once_and_succeeds(self):
+        client = self._make_client()
+        success_response = _FakeHTTPResponse(
+            {
+                "model": "gpt-5.4-mini-test",
+                "choices": [{"message": {"content": '{"summary":"done","action":"finish"}'}}],
+                "usage": {"total_tokens": 22},
+            }
+        )
+
+        with patch(
+            "repo_task_runtime.model_client.urlopen",
+            side_effect=[
+                _FakeRawHTTPResponse(b'{"choices": ['),
+                success_response,
+            ],
+        ) as urlopen_mock:
+            response = client.complete(system_prompt="sys", user_prompt="user")
+
+        self.assertEqual(2, urlopen_mock.call_count)
+        self.assertEqual('{"summary":"done","action":"finish"}', response.text)
+
+    def test_complete_accepts_text_content_parts_array(self):
+        client = self._make_client()
+        content_parts_response = _FakeHTTPResponse(
+            {
+                "model": "gpt-5.4-mini-test",
+                "choices": [
+                    {
+                        "message": {
+                            "content": [
+                                {"type": "text", "text": '{"summary":"done",'},
+                                {"type": "output_text", "text": '"action":"finish"}'},
+                            ]
+                        }
+                    }
+                ],
+                "usage": {"total_tokens": 22},
+            }
+        )
+
+        with patch(
+            "repo_task_runtime.model_client.urlopen",
+            return_value=content_parts_response,
+        ):
+            response = client.complete(system_prompt="sys", user_prompt="user")
+
+        self.assertEqual('{"summary":"done","action":"finish"}', response.text)
+
+    def test_complete_raises_provider_response_error_after_invalid_json_retries(self):
+        client = self._make_client()
+
+        with patch(
+            "repo_task_runtime.model_client.urlopen",
+            side_effect=[
+                _FakeRawHTTPResponse(b'{"choices": ['),
+                _FakeRawHTTPResponse(b'{"choices": ['),
+            ],
+        ) as urlopen_mock:
+            with self.assertRaises(ModelClientError) as ctx:
+                client.complete(system_prompt="sys", user_prompt="user")
+
+        self.assertEqual(2, urlopen_mock.call_count)
+        self.assertEqual(
+            "Model provider response invalid after 2 attempts: response body was not valid JSON.",
+            str(ctx.exception),
+        )
 
     def test_complete_does_not_retry_non_retryable_http_error(self):
         client = self._make_client()
