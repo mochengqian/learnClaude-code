@@ -6,6 +6,7 @@ from pathlib import Path
 from repo_task_runtime import (
     AgentRunner,
     FileReadRequest,
+    ModelClientError,
     ModelResponse,
     TaskWorkbench,
     TestCommandRequest,
@@ -105,6 +106,55 @@ class AgentRunnerTest(unittest.TestCase):
         self.assertEqual("in_progress", session.todos[0].status.value)
         event_types = [event.event_type for event in session.timeline]
         self.assertIn("agent_plan_drafted", event_types)
+
+    def test_draft_plan_retries_invalid_json_once(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        runner = AgentRunner(
+            FakeModelClient(
+                [
+                    "I will plan this in prose instead of JSON.",
+                    (
+                        '{"plan_markdown":"1. Inspect\\n2. Patch\\n3. Test",'
+                        '"todos":['
+                        '{"content":"Inspect the failing code","status":"in_progress"},'
+                        '{"content":"Patch the bug","status":"pending"},'
+                        '{"content":"Run tests","status":"pending"}'
+                        "]}"
+                    ),
+                ]
+            )
+        )
+
+        draft = runner.draft_plan(session)
+
+        self.assertEqual("1. Inspect\n2. Patch\n3. Test", draft.plan_markdown)
+        self.assertEqual(3, len(session.todos))
+        event_types = [event.event_type for event in session.timeline]
+        self.assertIn("agent_plan_output_invalid", event_types)
+        self.assertIn("agent_plan_output_retry_requested", event_types)
+        self.assertIn("agent_plan_output_repaired", event_types)
+        self.assertIn("agent_plan_drafted", event_types)
+
+    def test_draft_plan_wraps_invalid_output_after_retry(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        runner = AgentRunner(
+            FakeModelClient(
+                [
+                    "not json",
+                    '{"plan_markdown":"","todos":[]}',
+                ]
+            )
+        )
+
+        with self.assertRaisesRegex(ModelClientError, "Plan output invalid"):
+            runner.draft_plan(session)
+
+        event_types = [event.event_type for event in session.timeline]
+        self.assertEqual(2, event_types.count("agent_plan_output_invalid"))
+        self.assertEqual(1, event_types.count("agent_plan_output_retry_requested"))
+        self.assertNotIn("agent_plan_drafted", event_types)
 
     def test_run_next_step_keeps_file_patch_requests_inside_approval_flow(self):
         temp_dir, session = self.make_session()

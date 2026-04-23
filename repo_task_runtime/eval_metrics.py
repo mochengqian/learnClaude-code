@@ -137,6 +137,8 @@ def classify_runner_failure(last_failure_message: str) -> str:
 
     if _is_model_transport_failure(message):
         return "model_transport_failed"
+    if "plan output invalid" in message:
+        return "plan_invalid_output"
     if "rereading readme.md" in message:
         return "readme_reread"
     if "recent context for that file is already available" in message:

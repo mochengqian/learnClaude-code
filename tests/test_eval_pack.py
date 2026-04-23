@@ -54,6 +54,17 @@ class RuleBasedEvalModelClient:
         raise AssertionError("Unexpected eval prompt.")
 
 
+class InvalidPlanEvalModelClient(RuleBasedEvalModelClient):
+    def complete(self, *, system_prompt: str, user_prompt: str) -> ModelResponse:
+        if "repo-task planning assistant" in system_prompt:
+            return ModelResponse(
+                text="I will describe the plan instead of returning JSON.",
+                model="gpt-5.4-mini-test",
+                usage={"total_tokens": 111},
+            )
+        return super().complete(system_prompt=system_prompt, user_prompt=user_prompt)
+
+
 class BadPatchModelClient(RuleBasedEvalModelClient):
     def complete(self, *, system_prompt: str, user_prompt: str) -> ModelResponse:
         if "repo-task planning assistant" in system_prompt:
@@ -500,6 +511,19 @@ class EvalPackTest(unittest.TestCase):
         self.assertFalse(report.success)
         self.assertEqual("runner_failed", report.stop_reason)
         self.assertEqual("model_transport_failed", report.failure_reason)
+
+    def test_eval_runner_classifies_plan_invalid_output_failures(self):
+        runner = EvalRunner(
+            agent_runner=AgentRunner(InvalidPlanEvalModelClient()),
+            approval_mode=APPROVAL_MODE_AUTO_APPROVE_EDITS,
+        )
+
+        report = runner.run_case(get_builtin_eval_case("slug_join"))
+
+        self.assertFalse(report.success)
+        self.assertFalse(report.plan_generated)
+        self.assertEqual("runner_failed", report.stop_reason)
+        self.assertEqual("plan_invalid_output", report.failure_reason)
 
     def test_eval_runner_classifies_readme_reread_failures(self):
         runner = EvalRunner(

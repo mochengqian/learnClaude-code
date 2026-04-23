@@ -109,16 +109,9 @@ class AgentRunner:
             "task_input": session.task_input,
             "snapshot": self._snapshot_context(session),
         }
-        response = self.model_client.complete(
-            system_prompt=_PLAN_SYSTEM_PROMPT,
-            user_prompt=json.dumps(prompt_context, indent=2, ensure_ascii=False),
+        response, plan_markdown, todos = self._request_plan_payload(
+            session, prompt_context
         )
-        payload = _parse_json_object(response.text)
-        plan_markdown = str(payload.get("plan_markdown") or "").strip()
-        if not plan_markdown:
-            raise ModelClientError("Model returned an empty plan_markdown.")
-
-        todos = _normalize_todos(payload.get("todos") or [])
         session.update_plan(plan_markdown)
         session.replace_todos(todos)
         session.record_event(
@@ -134,6 +127,58 @@ class AgentRunner:
             usage=response.usage,
             raw_output=response.text,
         )
+
+    def _request_plan_payload(
+        self, session: TaskSession, prompt_context: Dict[str, Any]
+    ) -> Tuple[Any, str, List[TodoItem]]:
+        current_prompt_context = prompt_context
+
+        for attempt in range(self.max_output_retries + 1):
+            response = self.model_client.complete(
+                system_prompt=_PLAN_SYSTEM_PROMPT,
+                user_prompt=json.dumps(
+                    current_prompt_context, indent=2, ensure_ascii=False
+                ),
+            )
+            try:
+                payload = _parse_json_object(response.text)
+                plan_markdown = str(payload.get("plan_markdown") or "").strip()
+                if not plan_markdown:
+                    raise ModelClientError("Model returned an empty plan_markdown.")
+                todos = _normalize_todos(payload.get("todos") or [])
+            except ModelClientError as exc:
+                session.record_event(
+                    "agent_plan_output_invalid",
+                    model=response.model,
+                    attempt=attempt + 1,
+                    error=str(exc),
+                )
+                if attempt >= self.max_output_retries:
+                    raise ModelClientError(
+                        "Plan output invalid: {0}".format(exc)
+                    ) from exc
+                session.record_event(
+                    "agent_plan_output_retry_requested",
+                    model=response.model,
+                    attempt=attempt + 1,
+                    error=str(exc),
+                )
+                current_prompt_context = self._build_plan_repair_prompt_context(
+                    session=session,
+                    validation_error=str(exc),
+                    previous_output=response.text,
+                )
+                continue
+
+            if attempt > 0:
+                session.record_event(
+                    "agent_plan_output_repaired",
+                    model=response.model,
+                    attempts_used=attempt + 1,
+                )
+            return response, plan_markdown, todos
+
+        raise AssertionError("unreachable")
 
     def run_next_step(self, session: TaskSession) -> AgentStepOutcome:
         self._ensure_ready_for_step(session)
@@ -368,6 +413,48 @@ class AgentRunner:
             return response, payload
 
         raise AssertionError("unreachable")
+
+    def _build_plan_repair_prompt_context(
+        self,
+        *,
+        session: TaskSession,
+        validation_error: str,
+        previous_output: str,
+    ) -> Dict[str, Any]:
+        return {
+            "task_input": session.task_input,
+            "snapshot": self._snapshot_context(session),
+            "repair_request": {
+                "validation_error": validation_error,
+                "previous_output": previous_output,
+                "instruction": (
+                    "Return corrected JSON only using the required plan schema. "
+                    "Do not include markdown fences, prose, or comments. Include "
+                    "a non-empty plan_markdown string and a todos array with "
+                    "exactly one in_progress todo. Do not invent runtime tools."
+                ),
+                "required_schema": {
+                    "plan_markdown": "1. Inspect\n2. Patch\n3. Test",
+                    "todos": [
+                        {
+                            "content": "Inspect the relevant repo files",
+                            "active_form": "Inspecting the relevant repo files",
+                            "status": "in_progress",
+                        },
+                        {
+                            "content": "Apply the smallest safe change",
+                            "active_form": "Applying the smallest safe change",
+                            "status": "pending",
+                        },
+                        {
+                            "content": "Run local tests",
+                            "active_form": "Running local tests",
+                            "status": "pending",
+                        },
+                    ],
+                },
+            },
+        }
 
     def _build_repair_prompt_context(
         self,
