@@ -320,6 +320,14 @@ pre {
   font-size: 0.82rem;
 }
 
+.timeline-summary {
+  margin-top: 10px;
+}
+
+.timeline-summary .meta-row + .meta-row {
+  margin-top: 6px;
+}
+
 .approval-actions {
   display: flex;
   gap: 8px;

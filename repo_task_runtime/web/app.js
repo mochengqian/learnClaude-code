@@ -80,6 +80,263 @@ function approvalKindFromPayload(payload) {
   return payload.approval_kind || (payload.approval && payload.approval.approval_kind) || null;
 }
 
+function truncateText(value, maxLength = 96) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "none";
+  }
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, maxLength - 1)}…`;
+}
+
+function summarizeCommand(command) {
+  if (!Array.isArray(command) || command.length === 0) {
+    return "none";
+  }
+  return command.join(" ");
+}
+
+function summarizeRequestTarget(request) {
+  if (!request) {
+    return null;
+  }
+  if (request.relative_path) {
+    return createMetaPill("target", request.relative_path, "todo-pill");
+  }
+  if (Array.isArray(request.command) && request.command.length > 0) {
+    return createMetaPill("command", summarizeCommand(request.command), "todo-pill");
+  }
+  return null;
+}
+
+function timelineTitle(eventType) {
+  const titles = {
+    task_received: "Task received",
+    plan_mode_entered: "Plan mode entered",
+    plan_updated: "Plan updated",
+    plan_mode_exited: "Plan mode exited",
+    todos_replaced: "Todos replaced",
+    approval_requested: "Approval requested",
+    approval_granted: "Approval granted",
+    approval_rejected: "Approval rejected",
+    tool_denied: "Tool denied",
+    tool_executed: "Tool executed",
+    tool_failed: "Tool failed",
+    repo_state_mutated: "Repo state mutated",
+    diff_updated: "Diff updated",
+    local_test_completed: "Local test completed",
+  };
+  return titles[eventType] || String(eventType || "unknown").replaceAll("_", " ");
+}
+
+function buildTodoCounts(todos) {
+  const counts = {
+    in_progress: 0,
+    pending: 0,
+    completed: 0,
+  };
+  (Array.isArray(todos) ? todos : []).forEach((todo) => {
+    const status = String(todo.status || "pending").toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(counts, status)) {
+      counts[status] += 1;
+    }
+  });
+  return counts;
+}
+
+function buildTimelineSummary(event) {
+  const payload = event.payload || {};
+  const rows = [];
+  const requestTarget = summarizeRequestTarget(payload.request);
+  const approvalKind = approvalKindFromPayload(payload);
+
+  switch (event.event_type) {
+    case "task_received":
+      rows.push(createSummaryRow(createStateBadge("task", "received", "good")));
+      rows.push(
+        createSummaryRow(
+          createMetaPill("task", truncateText(payload.task_input, 120), "todo-pill"),
+        ),
+      );
+      break;
+    case "plan_mode_entered":
+      rows.push(
+        createSummaryRow(
+          createStateBadge("plan", "entered", "dirty"),
+          createMetaPill("mode", payload.permission_mode || "plan"),
+        ),
+      );
+      break;
+    case "plan_updated":
+      rows.push(
+        createSummaryRow(
+          createStateBadge("plan", "updated", "good"),
+          createMetaPill(
+            "plan lines",
+            String(String(payload.plan || "").split("\n").filter(Boolean).length),
+          ),
+        ),
+      );
+      rows.push(
+        createSummaryRow(
+          createMetaPill("preview", truncateText(payload.plan, 120), "todo-pill"),
+        ),
+      );
+      break;
+    case "plan_mode_exited":
+      rows.push(
+        createSummaryRow(
+          createStateBadge("plan", "exited", "good"),
+          createMetaPill("mode", payload.permission_mode || "default"),
+        ),
+      );
+      break;
+    case "todos_replaced": {
+      const counts = buildTodoCounts(payload.todos);
+      const activeTodo = Array.isArray(payload.todos)
+        ? payload.todos.find((todo) => String(todo.status || "").toLowerCase() === "in_progress")
+        : null;
+      const nextPendingTodo = Array.isArray(payload.todos)
+        ? payload.todos.find((todo) => String(todo.status || "").toLowerCase() === "pending")
+        : null;
+      rows.push(
+        createSummaryRow(
+          createStateBadge("todos", payload.cleared ? "cleared" : "replaced", payload.cleared ? "good" : "dirty"),
+          createStateBadge("in_progress", String(counts.in_progress), counts.in_progress ? "dirty" : "none"),
+          createStateBadge("pending", String(counts.pending), counts.pending ? "none" : "good"),
+          createStateBadge("completed", String(counts.completed), counts.completed ? "good" : "none"),
+        ),
+      );
+      rows.push(
+        createSummaryRow(
+          createMetaPill("active todo", summarizeTodoLabel(activeTodo), "todo-pill"),
+          createMetaPill("next pending", summarizeTodoLabel(nextPendingTodo), "todo-pill"),
+        ),
+      );
+      break;
+    }
+    case "approval_requested":
+      rows.push(
+        createSummaryRow(
+          createStateBadge("approval", "requested", "dirty"),
+          createMetaPill("tool", payload.tool_name || "unknown"),
+          createApprovalKindBadge(approvalKind),
+        ),
+      );
+      if (requestTarget) {
+        rows.push(createSummaryRow(requestTarget));
+      }
+      rows.push(
+        createSummaryRow(
+          createMetaPill("reason", truncateText(payload.reason, 120), "todo-pill"),
+        ),
+      );
+      break;
+    case "approval_granted":
+    case "approval_rejected":
+      rows.push(
+        createSummaryRow(
+          createStateBadge(
+            "approval",
+            event.event_type === "approval_granted" ? "granted" : "rejected",
+            event.event_type === "approval_granted" ? "good" : "dirty",
+          ),
+          createMetaPill("tool", payload.tool_name || "unknown"),
+          createApprovalKindBadge(approvalKind),
+        ),
+      );
+      break;
+    case "tool_denied":
+      rows.push(
+        createSummaryRow(
+          createStateBadge("tool", "denied", "dirty"),
+          createMetaPill("tool", payload.tool_name || "unknown"),
+        ),
+      );
+      if (requestTarget) {
+        rows.push(createSummaryRow(requestTarget));
+      }
+      rows.push(
+        createSummaryRow(
+          createMetaPill("reason", truncateText(payload.reason, 120), "todo-pill"),
+        ),
+      );
+      break;
+    case "tool_executed":
+      rows.push(
+        createSummaryRow(
+          createStateBadge("tool", "executed", payload.exit_code === 0 || payload.exit_code == null ? "good" : "dirty"),
+          createMetaPill("tool", payload.tool_name || "unknown"),
+          createApprovalKindBadge(approvalKind),
+          payload.exit_code == null
+            ? null
+            : createStateBadge("exit", String(payload.exit_code), payload.exit_code === 0 ? "good" : "dirty"),
+        ),
+      );
+      if (requestTarget) {
+        rows.push(createSummaryRow(requestTarget));
+      }
+      break;
+    case "tool_failed":
+      rows.push(
+        createSummaryRow(
+          createStateBadge("tool", "failed", "dirty"),
+          createMetaPill("tool", payload.tool_name || "unknown"),
+          createApprovalKindBadge(approvalKind),
+        ),
+      );
+      if (requestTarget) {
+        rows.push(createSummaryRow(requestTarget));
+      }
+      rows.push(
+        createSummaryRow(
+          createMetaPill("message", truncateText(payload.message, 120), "todo-pill"),
+        ),
+      );
+      break;
+    case "repo_state_mutated":
+      rows.push(
+        createSummaryRow(
+          createStateBadge("repo", "mutated", "dirty"),
+          createMetaPill("tool", payload.tool_name || "unknown"),
+          createMetaPill("revision", String(payload.repo_state_revision || 0)),
+        ),
+      );
+      break;
+    case "diff_updated":
+      rows.push(
+        createSummaryRow(
+          createStateBadge(
+            "diff",
+            payload.diff_chars ? `${payload.diff_chars} chars` : "clean",
+            payload.diff_chars ? "dirty" : "none",
+          ),
+          createMetaPill("tool", payload.tool_name || "unknown"),
+        ),
+      );
+      break;
+    case "local_test_completed":
+      rows.push(
+        createSummaryRow(
+          createStateBadge("test", payload.exit_code === 0 ? "passed" : "failed", payload.exit_code === 0 ? "good" : "dirty"),
+          createStateBadge("exit", String(payload.exit_code == null ? "none" : payload.exit_code), payload.exit_code === 0 ? "good" : "dirty"),
+        ),
+      );
+      rows.push(
+        createSummaryRow(
+          createMetaPill("command", summarizeCommand(payload.command), "todo-pill"),
+        ),
+      );
+      break;
+    default:
+      return [];
+  }
+
+  return rows.filter(Boolean);
+}
+
 function summarizeLatestSuccessfulTest(session) {
   if (!session || !session.latest_successful_test) {
     return {
@@ -338,20 +595,28 @@ function renderTimeline(session) {
       head.className = "card-head";
 
       const title = document.createElement("strong");
-      title.textContent = event.event_type;
+      title.textContent = timelineTitle(event.event_type);
       head.appendChild(title);
 
+      head.appendChild(createMetaPill("event", event.event_type));
       head.appendChild(createApprovalKindBadge(approvalKindFromPayload(event.payload)));
 
       const createdAt = document.createElement("p");
       createdAt.className = "muted";
       createdAt.textContent = event.created_at;
 
+      const summary = document.createElement("div");
+      summary.className = "summary-stack timeline-summary";
+      buildTimelineSummary(event).forEach((row) => summary.appendChild(row));
+
       const payloadPreview = document.createElement("pre");
       payloadPreview.textContent = JSON.stringify(event.payload, null, 2);
 
       item.appendChild(head);
       item.appendChild(createdAt);
+      if (summary.childElementCount > 0) {
+        item.appendChild(summary);
+      }
       item.appendChild(payloadPreview);
       elements.timelinePanel.appendChild(item);
     });

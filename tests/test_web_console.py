@@ -36,6 +36,7 @@ class WebConsoleTest(unittest.TestCase):
         self.assertIn("Plan mode, todo progress", response.text)
         self.assertIn("latest successful test status", response.text)
         self.assertIn("current test evidence", response.text)
+        self.assertIn("Key event summaries appear above raw payloads", response.text)
 
     def test_assets_are_served(self):
         js_response = self.client.get("/assets/app.js")
@@ -53,6 +54,11 @@ class WebConsoleTest(unittest.TestCase):
         self.assertIn("todo_counts", js_response.text)
         self.assertIn("active_todo", js_response.text)
         self.assertIn("next_pending_todo", js_response.text)
+        self.assertIn("buildTimelineSummary", js_response.text)
+        self.assertIn("timelineTitle", js_response.text)
+        self.assertIn("diff_updated", js_response.text)
+        self.assertIn("local_test_completed", js_response.text)
+        self.assertIn('createMetaPill("event"', js_response.text)
         self.assertIn("approval_kind", js_response.text)
         self.assertIn("latestResultSummary", js_response.text)
         self.assertIn("latest_successful_test", js_response.text)
@@ -64,3 +70,4 @@ class WebConsoleTest(unittest.TestCase):
         self.assertIn(".state-good", css_response.text)
         self.assertIn(".todo-pill", css_response.text)
         self.assertIn(".summary-stack", css_response.text)
+        self.assertIn(".timeline-summary", css_response.text)
