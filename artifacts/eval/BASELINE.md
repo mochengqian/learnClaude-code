@@ -286,3 +286,38 @@ Case outcomes:
 - `slug_join`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
 - `clamp_lower_bound`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
 - `compact_whitespace`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+
+## M3 Patch Contract Hardening Checkpoint (2026-04-23)
+
+- Commit: `76ee48c`
+- Model: `RightCode / gpt-5.4-mini`
+- Eval command source:
+  - `artifacts/eval/rightcode-gpt-5.4-mini-m3-patch-contract-auto_approve_edits.json`
+  - `artifacts/eval/rightcode-gpt-5.4-mini-m3-patch-contract-stop_on_request.json`
+- Notes: `No-op file_patch is now blocked at the agent output contract and gets one bounded repair. auto_approve_edits recovered to 3/3 while duplicate reads stayed at 0.0.`
+
+### auto_approve_edits
+
+- Passed: `3/3`
+- Average steps: `5.67`
+- Average duplicate reads: `0.0`
+- Cases with same-file rereads: `0`
+- Failure reasons: `{}`
+
+Case outcomes:
+- `slug_join`: `PASS`, stop=`finished`, failure=`-`
+- `clamp_lower_bound`: `PASS`, stop=`finished`, failure=`-`
+- `compact_whitespace`: `PASS`, stop=`finished`, failure=`-`
+
+### stop_on_request
+
+- Passed: `0/3`
+- Average steps: `3.67`
+- Average duplicate reads: `0.0`
+- Cases with same-file rereads: `0`
+- Failure reasons: `{"edit_approval_required": 3}`
+
+Case outcomes:
+- `slug_join`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `clamp_lower_bound`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `compact_whitespace`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
