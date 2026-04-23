@@ -483,6 +483,42 @@ curl -X POST http://127.0.0.1:8000/demo/setup
 10. 确认测试通过。
 11. 在控制台查看 latest diff、latest tool result 和 event timeline。
 
+## M2 Readiness Note
+
+M2 的收口目标是证明“真实 repo 局部任务闭环可演示、可解释、可回归”，不是继续长成平台。
+
+当前可演示路径：
+
+- demo repo setup -> session/task input -> plan draft/approve -> todo lifecycle -> restricted tools
+- read/test -> edit approval -> approve -> diff -> successful local test -> event timeline
+- Web 控制台只消费现有 session snapshot 和 timeline 字段，不承载新的 runtime 逻辑
+
+已完成能力：
+
+- plan mode、todo 状态、approval kind、diff/test evidence、timeline summary 都已经在薄控制台可见
+- agent loop 只做单 agent 限步推进，并带最小 todo sync、output repair/retry、path/read/edit/finish guardrails
+- eval 治理保持克制：`artifacts/eval/*.json` 是本地产物，只提交 `artifacts/eval/BASELINE.md` 摘要
+
+明确不做：
+
+- 不做持久化 / 数据库
+- 不做 worktree / 子代理
+- 不做 MCP / plugin / 记忆系统
+- 不新增工具类型
+- 不把 shell 扩成通用命令平台
+- 不做复杂前端或产品化面板
+
+M2 closeout smoke 命令：
+
+```bash
+node --check repo_task_runtime/web/app.js
+python3 -m unittest tests.test_demo_flow -v
+python3 -m unittest tests.test_api -v
+python3 -m unittest tests.test_agent -v
+python3 -m unittest tests.test_web_console -v
+python3 -m unittest discover -s tests -v
+```
+
 ## 测试
 
 除了原有 runtime / API 测试，这一轮新增：
