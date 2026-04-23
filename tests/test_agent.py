@@ -555,6 +555,131 @@ class AgentRunnerTest(unittest.TestCase):
         ]
         self.assertEqual(2, len(event_payloads))
 
+    def test_run_next_step_repairs_shell_test_into_run_test(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        session.update_plan("1. Inspect\n2. Fix\n3. Test")
+        session.approve_plan()
+        self.seed_todos(session)
+        runner = AgentRunner(
+            FakeModelClient(
+                [
+                    (
+                        '{"summary":"Run the local tests from shell.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{'
+                        '"tool_type":"shell",'
+                        '"command":["python3","-m","unittest","discover","-s","tests","-v"]'
+                        "}}"
+                    ),
+                    (
+                        '{"summary":"Still run the local tests from shell.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{'
+                        '"tool_type":"shell",'
+                        '"command":["python3","-m","unittest","discover","-s","tests","-v"]'
+                        "}}"
+                    ),
+                    (
+                        '{"summary":"Run the local tests with run_test.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{'
+                        '"tool_type":"run_test",'
+                        '"command":["python3","-m","unittest","discover","-s","tests","-v"]'
+                        "}}"
+                    ),
+                ]
+            )
+        )
+
+        outcome = runner.run_next_step(session)
+
+        self.assertEqual("request_tool", outcome.decision.action)
+        self.assertEqual("executed", outcome.tool_result.status)
+        self.assertEqual("run_test", outcome.tool_result.tool_name)
+        event_types = [event.event_type for event in session.timeline]
+        self.assertIn(
+            "agent_step_output_approval_path_second_chance_requested",
+            event_types,
+        )
+        event_payloads = [
+            event.payload
+            for event in session.timeline
+            if event.event_type == "agent_step_output_invalid"
+        ]
+        self.assertTrue(
+            any(
+                "Use run_test instead of shell for local tests" in payload.get("error", "")
+                for payload in event_payloads
+            )
+        )
+
+    def test_run_next_step_repairs_shell_file_read_into_read_file(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        session.update_plan("1. Inspect\n2. Fix\n3. Test")
+        session.approve_plan()
+        self.seed_todos(session)
+        source_dir = session.repo_path / "demo_app"
+        source_dir.mkdir()
+        (source_dir / "string_tools.py").write_text(
+            'def slugify_title(value: str) -> str:\n    return value.replace(" ", "_")\n',
+            encoding="utf-8",
+        )
+        runner = AgentRunner(
+            FakeModelClient(
+                [
+                    (
+                        '{"summary":"Inspect the file through shell.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{'
+                        '"tool_type":"shell",'
+                        '"command":["cat","demo_app/string_tools.py"]'
+                        "}}"
+                    ),
+                    (
+                        '{"summary":"Still inspect the file through shell.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{'
+                        '"tool_type":"shell",'
+                        '"command":["cat","demo_app/string_tools.py"]'
+                        "}}"
+                    ),
+                    (
+                        '{"summary":"Read the slug helper directly.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{"tool_type":"read_file","relative_path":"demo_app/string_tools.py"}}'
+                    ),
+                ]
+            )
+        )
+
+        outcome = runner.run_next_step(session)
+
+        self.assertEqual("request_tool", outcome.decision.action)
+        self.assertEqual("executed", outcome.tool_result.status)
+        self.assertEqual("read_file", outcome.tool_result.tool_name)
+        self.assertEqual(
+            "demo_app/string_tools.py",
+            outcome.tool_result.data["relative_path"],
+        )
+        event_types = [event.event_type for event in session.timeline]
+        self.assertIn(
+            "agent_step_output_approval_path_second_chance_requested",
+            event_types,
+        )
+        event_payloads = [
+            event.payload
+            for event in session.timeline
+            if event.event_type == "agent_step_output_invalid"
+        ]
+        self.assertTrue(
+            any(
+                "Use read_file for that file instead of shell" in payload.get("error", "")
+                for payload in event_payloads
+            )
+        )
+
     def test_run_next_step_retries_file_patch_without_recent_read(self):
         temp_dir, session = self.make_session()
         self.addCleanup(temp_dir.cleanup)

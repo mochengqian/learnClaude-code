@@ -305,6 +305,46 @@ class TaskRuntimeTest(unittest.TestCase):
         self.assertIn("recent context for that file is already available", message)
         self.assertIn("file_patch/write_file or run_test", message)
 
+    def test_approval_focus_blocks_shell_test_when_run_test_should_be_used(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        session.approve_plan()
+        tests_dir = session.repo_path / "tests"
+        tests_dir.mkdir(exist_ok=True)
+        (tests_dir / "test_smoke.py").write_text(
+            "def test_placeholder() -> None:\n    assert True\n",
+            encoding="utf-8",
+        )
+
+        message = session.validate_tool_request_approval_focus(
+            ShellCommandRequest(
+                command=("python3", "-m", "unittest", "discover", "-s", "tests", "-v")
+            )
+        )
+
+        self.assertIsNotNone(message)
+        self.assertIn("Use run_test instead of shell", message)
+        self.assertIn("python3 -m unittest discover -s tests -v", message)
+
+    def test_approval_focus_blocks_shell_file_read_when_read_file_should_be_used(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        session.approve_plan()
+        app_dir = session.repo_path / "demo_app"
+        app_dir.mkdir()
+        (app_dir / "string_tools.py").write_text(
+            "def slugify_title(value: str) -> str:\n    return value\n",
+            encoding="utf-8",
+        )
+
+        message = session.validate_tool_request_approval_focus(
+            ShellCommandRequest(command=("cat", "demo_app/string_tools.py"))
+        )
+
+        self.assertIsNotNone(message)
+        self.assertIn("Use read_file for that file instead of shell", message)
+        self.assertIn("demo_app/string_tools.py", message)
+
     def test_read_focus_allows_same_file_reread_after_failed_test(self):
         temp_dir, session = self.make_session()
         self.addCleanup(temp_dir.cleanup)

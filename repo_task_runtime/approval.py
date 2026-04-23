@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Sequence, Tuple
+from typing import Optional, Sequence, Tuple
 
 from .models import (
     FileReadRequest,
@@ -53,6 +53,13 @@ class ApprovalDecision:
     reason: str
 
 
+@dataclass(frozen=True)
+class ShellToolGuidance:
+    preferred_tool: str
+    reason: str
+    relative_path: Optional[str] = None
+
+
 def _matches_prefix(command: Sequence[str], prefixes: Sequence[Sequence[str]]) -> bool:
     for prefix in prefixes:
         if len(command) < len(prefix):
@@ -72,6 +79,24 @@ class ApprovalPolicy:
         self.safe_read_prefixes = tuple(tuple(item) for item in safe_read_prefixes)
         self.safe_test_prefixes = tuple(tuple(item) for item in safe_test_prefixes)
         self.dangerous_prefixes = tuple(tuple(item) for item in dangerous_prefixes)
+
+    def guidance_for_shell_request(
+        self, request: ShellCommandRequest
+    ) -> Optional[ShellToolGuidance]:
+        if _looks_like_local_test_command(request.command, self.safe_test_prefixes):
+            return ShellToolGuidance(
+                preferred_tool="run_test",
+                reason="Use run_test instead of shell for local test commands.",
+            )
+
+        relative_path = _extract_direct_file_read_path(request.command)
+        if relative_path:
+            return ShellToolGuidance(
+                preferred_tool="read_file",
+                reason="Use read_file instead of shell when inspecting a repo file directly.",
+                relative_path=relative_path,
+            )
+        return None
 
     def evaluate(
         self, mode: PermissionMode, request: ToolInvocationRequest
@@ -108,3 +133,37 @@ class ApprovalPolicy:
             return ApprovalDecision("ask", "shell command requires explicit approval")
 
         return ApprovalDecision("ask", "tool requires explicit approval")
+
+
+def _looks_like_local_test_command(
+    command: Sequence[str], safe_test_prefixes: Sequence[Sequence[str]]
+) -> bool:
+    if _matches_prefix(command, safe_test_prefixes):
+        return True
+
+    lowered = [part.lower() for part in command]
+    if "pytest" in lowered:
+        return True
+
+    for index, part in enumerate(lowered[:-1]):
+        if part != "-m":
+            continue
+        if lowered[index + 1] in {"pytest", "unittest"}:
+            return True
+    return False
+
+
+def _extract_direct_file_read_path(command: Sequence[str]) -> Optional[str]:
+    if not command:
+        return None
+
+    command_name = command[0]
+    if command_name == "cat" and len(command) == 2:
+        return command[1]
+
+    if command_name == "sed" and len(command) >= 2:
+        candidate = command[-1].strip()
+        if candidate and not candidate.startswith("-"):
+            return candidate
+
+    return None

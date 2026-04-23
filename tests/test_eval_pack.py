@@ -146,6 +146,41 @@ class EditWithoutReadEvalModelClient(RuleBasedEvalModelClient):
         )
 
 
+class ShellApprovalEvalModelClient(RuleBasedEvalModelClient):
+    def complete(self, *, system_prompt: str, user_prompt: str) -> ModelResponse:
+        if "repo-task planning assistant" in system_prompt:
+            return super().complete(system_prompt=system_prompt, user_prompt=user_prompt)
+        if '"latest_tool_result": null' in user_prompt:
+            return ModelResponse(
+                text=json.dumps(
+                    {
+                        "summary": "Read the slug helper first.",
+                        "action": "request_tool",
+                        "tool_request": {
+                            "tool_type": "read_file",
+                            "relative_path": "demo_app/string_tools.py",
+                        },
+                    }
+                ),
+                model="gpt-5.4-mini-test",
+                usage={"total_tokens": 111},
+            )
+        return ModelResponse(
+            text=json.dumps(
+                {
+                    "summary": "Run a shell command that still needs approval.",
+                    "action": "request_tool",
+                    "tool_request": {
+                        "tool_type": "shell",
+                        "command": ["python3", "-c", "print('hello')"],
+                    },
+                }
+            ),
+            model="gpt-5.4-mini-test",
+            usage={"total_tokens": 111},
+        )
+
+
 class TransportFailureEvalModelClient(RuleBasedEvalModelClient):
     def complete(self, *, system_prompt: str, user_prompt: str) -> ModelResponse:
         if "repo-task planning assistant" in system_prompt:
@@ -330,7 +365,19 @@ class EvalPackTest(unittest.TestCase):
 
         self.assertFalse(report.success)
         self.assertEqual("approval_required", report.stop_reason)
-        self.assertEqual("approval_required", report.failure_reason)
+        self.assertEqual("edit_approval_required", report.failure_reason)
+
+    def test_eval_runner_classifies_shell_approval_failures(self):
+        runner = EvalRunner(
+            agent_runner=AgentRunner(ShellApprovalEvalModelClient()),
+            approval_mode=APPROVAL_MODE_STOP_ON_REQUEST,
+        )
+
+        report = runner.run_case(get_builtin_eval_case("slug_join"))
+
+        self.assertFalse(report.success)
+        self.assertEqual("approval_required", report.stop_reason)
+        self.assertEqual("shell_approval_required", report.failure_reason)
 
     def test_eval_runner_classifies_bad_patch_failures(self):
         runner = EvalRunner(

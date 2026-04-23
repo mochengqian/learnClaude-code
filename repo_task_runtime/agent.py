@@ -78,6 +78,9 @@ Rules:
 - write_file must contain the full file contents, not a patch.
 - Use write_file mainly for new files or full rewrites.
 - run_test is only for local tests.
+- Use run_test instead of shell for local test commands such as python -m unittest or pytest.
+- Use read_file instead of shell when inspecting a specific repo file.
+- Do not use shell to cat/sed a repo file or to run the local test suite.
 - shell should stay conservative and read-oriented.
 - Do not return finish unless a local run_test has already succeeded for the current repo state.
 - If the task might be complete but the current repo state has not passed a local test yet, request run_test instead of finish.
@@ -230,6 +233,7 @@ class AgentRunner:
         self, session: TaskSession, prompt_context: Dict[str, Any]
     ) -> Tuple[Any, Dict[str, Any]]:
         current_prompt_context = prompt_context
+        remaining_approval_path_second_chances = 1
         remaining_directory_path_second_chances = 1
         remaining_edit_target_second_chances = 1
         remaining_missing_relative_path_second_chances = 1
@@ -253,6 +257,11 @@ class AgentRunner:
                     error=str(exc),
                 )
                 standard_retry_available = attempt < self.max_output_retries
+                approval_path_second_chance = (
+                    not standard_retry_available
+                    and remaining_approval_path_second_chances > 0
+                    and self._is_approval_path_error(str(exc))
+                )
                 directory_path_second_chance = (
                     not standard_retry_available
                     and remaining_directory_path_second_chances > 0
@@ -275,12 +284,21 @@ class AgentRunner:
                 )
                 if (
                     not standard_retry_available
+                    and not approval_path_second_chance
                     and not directory_path_second_chance
                     and not edit_target_second_chance
                     and not missing_relative_path_second_chance
                     and not missing_repo_file_second_chance
                 ):
                     raise
+                if approval_path_second_chance:
+                    remaining_approval_path_second_chances -= 1
+                    session.record_event(
+                        "agent_step_output_approval_path_second_chance_requested",
+                        model=response.model,
+                        attempt=attempt + 1,
+                        error=str(exc),
+                    )
                 if directory_path_second_chance:
                     remaining_directory_path_second_chances -= 1
                     session.record_event(
@@ -353,6 +371,9 @@ class AgentRunner:
                     "Return corrected JSON only using the required runtime schema. "
                     "If finish is blocked, choose the next request_tool action instead."
                 ),
+                "approval_path_repair": self._build_approval_path_repair(
+                    validation_error
+                ),
                 "directory_path_repair": self._build_directory_path_repair(
                     validation_error
                 ),
@@ -402,6 +423,11 @@ class AgentRunner:
             edit_context_error = session.validate_tool_request_edit_context(tool_request)
             if edit_context_error:
                 raise ModelClientError(edit_context_error)
+            approval_focus_error = session.validate_tool_request_approval_focus(
+                tool_request
+            )
+            if approval_focus_error:
+                raise ModelClientError(approval_focus_error)
 
     def _tool_request_from_payload(self, payload: Dict[str, Any]):
         tool_payload = payload.get("tool_request")
@@ -426,6 +452,13 @@ class AgentRunner:
 
     def _is_directory_path_error(self, validation_error: str) -> bool:
         return "directory path for" in validation_error.lower()
+
+    def _is_approval_path_error(self, validation_error: str) -> bool:
+        lowered = validation_error.lower()
+        return (
+            "selected shell for a local test command" in lowered
+            or "selected shell to read a repo file directly" in lowered
+        )
 
     def _is_edit_target_error(self, validation_error: str) -> bool:
         lowered = validation_error.lower()
@@ -469,6 +502,43 @@ class AgentRunner:
             "suggested_relative_path": suggested_relative_path,
             "instruction": instruction,
         }
+
+    def _build_approval_path_repair(
+        self, validation_error: str
+    ) -> Optional[Dict[str, Any]]:
+        if not self._is_approval_path_error(validation_error):
+            return None
+
+        instruction = (
+            "The previous tool_request used shell even though a more specific runtime "
+            "tool should be used. Return corrected JSON only using the same schema."
+        )
+
+        shell_read_relative_path = self._extract_shell_read_relative_path(
+            validation_error
+        )
+        if shell_read_relative_path:
+            instruction += (
+                " Change tool_type to read_file and use relative_path {0}. "
+                "Do not use shell for direct repo file reads."
+            ).format(shell_read_relative_path)
+            return {
+                "preferred_tool_type": "read_file",
+                "relative_path": shell_read_relative_path,
+                "instruction": instruction,
+            }
+
+        if "local test command" in validation_error.lower():
+            instruction += (
+                " Change tool_type to run_test and keep the same local test command. "
+                "Do not use shell for the local test suite."
+            )
+            return {
+                "preferred_tool_type": "run_test",
+                "instruction": instruction,
+            }
+
+        return None
 
     def _build_edit_target_repair(
         self, *, session: TaskSession, validation_error: str
@@ -691,6 +761,18 @@ class AgentRunner:
     ) -> Optional[str]:
         match = re.search(
             r"such as ([^.\n]+(?:\.[^.\n]+)+) instead\.",
+            validation_error,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            return None
+        return match.group(1).strip()
+
+    def _extract_shell_read_relative_path(
+        self, validation_error: str
+    ) -> Optional[str]:
+        match = re.search(
+            r"repo file directly: ([^\s]+)\.",
             validation_error,
             flags=re.IGNORECASE,
         )

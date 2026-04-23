@@ -313,6 +313,40 @@ class TaskSession:
             "file_patch/write_file or run_test instead of reading the same file again."
         ).format(request.relative_path)
 
+    def validate_tool_request_approval_focus(
+        self, request: ToolInvocationRequest
+    ) -> Optional[str]:
+        if not isinstance(request, ShellCommandRequest):
+            return None
+
+        guidance = self.approval_policy.guidance_for_shell_request(request)
+        if guidance is None:
+            return None
+
+        command_preview = " ".join(request.command)
+        if guidance.preferred_tool == "run_test":
+            return (
+                "Model selected shell for a local test command: {0}. "
+                "Use run_test instead of shell for local tests."
+            ).format(command_preview)
+
+        relative_path = (guidance.relative_path or "").strip()
+        if not relative_path:
+            return None
+
+        path_error = self._validate_repo_file_path(
+            relative_path,
+            tool_name="read_file",
+            must_exist=True,
+        )
+        if path_error is not None:
+            return None
+
+        return (
+            "Model selected shell to read a repo file directly: {0}. "
+            "Use read_file for that file instead of shell."
+        ).format(relative_path)
+
     def build_read_focus_snapshot(self) -> Dict[str, object]:
         recent_context_paths = [
             item.relative_path for item in self.recent_file_contexts
@@ -350,7 +384,9 @@ class TaskSession:
             instruction = (
                 "Recent file context is already available. Use "
                 "recent_file_contexts instead of rereading these files, then prefer "
-                "file_patch/write_file or run_test."
+                "file_patch/write_file or run_test. Use run_test instead of shell for "
+                "local tests, and use read_file instead of shell when inspecting a "
+                "specific repo file."
             )
             if primary_target_path:
                 instruction += " Keep edits on {0} unless you first read a different target file.".format(
