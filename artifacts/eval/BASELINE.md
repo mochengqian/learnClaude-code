@@ -181,3 +181,38 @@ Case outcomes:
 - `slug_join`: `FAIL`, stop=`approval_required`, failure=`approval_required`
 - `clamp_lower_bound`: `FAIL`, stop=`approval_required`, failure=`approval_required`
 - `compact_whitespace`: `FAIL`, stop=`approval_required`, failure=`approval_required`
+
+## Approval Path Hardening Checkpoint (2026-04-23)
+
+- Commit: `d292542`
+- Model: `RightCode / gpt-5.4-mini`
+- Eval command source:
+  - `artifacts/eval/rightcode-gpt-5.4-mini-auto_approve_edits.json`
+  - `artifacts/eval/rightcode-gpt-5.4-mini-stop_on_request.json`
+- Notes: `Approval-path hardening kept auto_approve_edits at 3/3 and removed low-value shell approval noise from stop_on_request. Approval failures now land as edit_approval_required instead of a single generic approval_required bucket.`
+
+### auto_approve_edits
+
+- Passed: `3/3`
+- Average steps: `5.33`
+- Average duplicate reads: `0.0`
+- Cases with same-file rereads: `0`
+- Failure reasons: `{}`
+
+Case outcomes:
+- `slug_join`: `PASS`, stop=`finished`, failure=`-`
+- `clamp_lower_bound`: `PASS`, stop=`finished`, failure=`-`
+- `compact_whitespace`: `PASS`, stop=`finished`, failure=`-`
+
+### stop_on_request
+
+- Passed: `0/3`
+- Average steps: `3.67`
+- Average duplicate reads: `0.0`
+- Cases with same-file rereads: `0`
+- Failure reasons: `{"edit_approval_required": 3}`
+
+Case outcomes:
+- `slug_join`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `clamp_lower_bound`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `compact_whitespace`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
