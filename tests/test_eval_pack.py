@@ -213,6 +213,81 @@ class SameFileRereadEvalModelClient(RuleBasedEvalModelClient):
         )
 
 
+class OffTargetEditEvalModelClient(RuleBasedEvalModelClient):
+    def __init__(self) -> None:
+        self.step_index = 0
+
+    def complete(self, *, system_prompt: str, user_prompt: str) -> ModelResponse:
+        if "repo-task planning assistant" in system_prompt:
+            return super().complete(system_prompt=system_prompt, user_prompt=user_prompt)
+        self.step_index += 1
+        if self.step_index == 1:
+            payload = {
+                "summary": "Read the README first.",
+                "action": "request_tool",
+                "tool_request": {
+                    "tool_type": "read_file",
+                    "relative_path": "README.md",
+                },
+            }
+        elif self.step_index == 2:
+            payload = {
+                "summary": "Read the slug helper next.",
+                "action": "request_tool",
+                "tool_request": {
+                    "tool_type": "read_file",
+                    "relative_path": "demo_app/string_tools.py",
+                },
+            }
+        else:
+            payload = {
+                "summary": "Patch the README note.",
+                "action": "request_tool",
+                "tool_request": {
+                    "tool_type": "file_patch",
+                    "relative_path": "README.md",
+                    "expected_old_snippet": "hello\n",
+                    "new_snippet": "hello\nfixed\n",
+                },
+            }
+        return ModelResponse(
+            text=json.dumps(payload),
+            model="gpt-5.4-mini-test",
+            usage={"total_tokens": 111},
+        )
+
+
+class BadPatchTargetEvalModelClient(RuleBasedEvalModelClient):
+    def complete(self, *, system_prompt: str, user_prompt: str) -> ModelResponse:
+        if "repo-task planning assistant" in system_prompt:
+            return super().complete(system_prompt=system_prompt, user_prompt=user_prompt)
+        if '"latest_tool_result": null' in user_prompt:
+            payload = {
+                "summary": "Read the slug helper first.",
+                "action": "request_tool",
+                "tool_request": {
+                    "tool_type": "read_file",
+                    "relative_path": "demo_app/string_tools.py",
+                },
+            }
+        else:
+            payload = {
+                "summary": "Patch the slug helper with the same content.",
+                "action": "request_tool",
+                "tool_request": {
+                    "tool_type": "file_patch",
+                    "relative_path": "demo_app/string_tools.py",
+                    "expected_old_snippet": '"_".join(parts)',
+                    "new_snippet": '"_".join(parts)',
+                },
+            }
+        return ModelResponse(
+            text=json.dumps(payload),
+            model="gpt-5.4-mini-test",
+            usage={"total_tokens": 111},
+        )
+
+
 class EvalPackTest(unittest.TestCase):
     def test_builtin_eval_cases_are_stable(self):
         cases = builtin_eval_cases()
@@ -377,6 +452,30 @@ class EvalPackTest(unittest.TestCase):
         self.assertFalse(report.success)
         self.assertEqual("runner_failed", report.stop_reason)
         self.assertEqual("same_file_reread", report.failure_reason)
+
+    def test_eval_runner_classifies_off_target_edit_failures(self):
+        runner = EvalRunner(
+            agent_runner=AgentRunner(OffTargetEditEvalModelClient(), max_output_retries=0),
+            approval_mode=APPROVAL_MODE_AUTO_APPROVE_EDITS,
+        )
+
+        report = runner.run_case(get_builtin_eval_case("slug_join"))
+
+        self.assertFalse(report.success)
+        self.assertEqual("runner_failed", report.stop_reason)
+        self.assertEqual("off_target_edit", report.failure_reason)
+
+    def test_eval_runner_classifies_bad_patch_target_failures(self):
+        runner = EvalRunner(
+            agent_runner=AgentRunner(BadPatchTargetEvalModelClient()),
+            approval_mode=APPROVAL_MODE_AUTO_APPROVE_EDITS,
+        )
+
+        report = runner.run_case(get_builtin_eval_case("slug_join"))
+
+        self.assertFalse(report.success)
+        self.assertEqual("tool_failed", report.stop_reason)
+        self.assertEqual("bad_patch_target", report.failure_reason)
 
 
 def _slug_join_response(user_prompt: str) -> ModelResponse:

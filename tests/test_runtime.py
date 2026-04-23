@@ -343,6 +343,60 @@ class TaskRuntimeTest(unittest.TestCase):
 
         self.assertIsNone(message)
 
+    def test_primary_target_prefers_source_file_over_readme_context(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        session.approve_plan()
+        app_dir = session.repo_path / "demo_app"
+        app_dir.mkdir()
+        (app_dir / "number_tools.py").write_text(
+            "def clamp(value: int, lower: int, upper: int) -> int:\n    return value\n",
+            encoding="utf-8",
+        )
+
+        readme_result = session.request_tool(FileReadRequest(relative_path="README.md"))
+        source_result = session.request_tool(
+            FileReadRequest(relative_path="demo_app/number_tools.py")
+        )
+        self.assertEqual("executed", readme_result.status)
+        self.assertEqual("executed", source_result.status)
+
+        self.assertEqual(
+            "demo_app/number_tools.py",
+            session.current_primary_target_path(),
+        )
+
+    def test_edit_context_blocks_off_target_patch_after_source_read(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        session.approve_plan()
+        app_dir = session.repo_path / "demo_app"
+        app_dir.mkdir()
+        (app_dir / "number_tools.py").write_text(
+            "def clamp(value: int, lower: int, upper: int) -> int:\n    return value\n",
+            encoding="utf-8",
+        )
+
+        readme_result = session.request_tool(FileReadRequest(relative_path="README.md"))
+        source_result = session.request_tool(
+            FileReadRequest(relative_path="demo_app/number_tools.py")
+        )
+        self.assertEqual("executed", readme_result.status)
+        self.assertEqual("executed", source_result.status)
+
+        message = session.validate_tool_request_edit_context(
+            FilePatchRequest(
+                relative_path="README.md",
+                expected_old_snippet="hello\n",
+                new_snippet="hello\n",
+            )
+        )
+
+        self.assertIsNotNone(message)
+        self.assertIn("off-target edit path", message)
+        self.assertIn("demo_app/number_tools.py", message)
+        self.assertIn("read README.md first", message)
+
     def test_directory_path_suggestion_prefers_file_inside_directory(self):
         temp_dir, session = self.make_session()
         self.addCleanup(temp_dir.cleanup)

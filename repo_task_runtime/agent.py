@@ -69,6 +69,11 @@ Rules:
   need fresh context.
 - When snapshot.read_focus.preferred_next_action is patch_or_test, prefer file_patch,
   write_file, or run_test over rereading the same file.
+- When snapshot.read_focus.primary_target_path is set and you choose file_patch or
+  write_file, keep the edit on that same path unless you first read a different file
+  because it is truly the intended target.
+- Do not patch README.md or another previously seen file just because it was read
+  earlier; switch edit targets only after reading the new target file.
 - Prefer file_patch for small, localized edits.
 - write_file must contain the full file contents, not a patch.
 - Use write_file mainly for new files or full rewrites.
@@ -226,6 +231,7 @@ class AgentRunner:
     ) -> Tuple[Any, Dict[str, Any]]:
         current_prompt_context = prompt_context
         remaining_directory_path_second_chances = 1
+        remaining_edit_target_second_chances = 1
         remaining_missing_relative_path_second_chances = 1
         remaining_missing_repo_file_second_chances = 1
 
@@ -252,6 +258,11 @@ class AgentRunner:
                     and remaining_directory_path_second_chances > 0
                     and self._is_directory_path_error(str(exc))
                 )
+                edit_target_second_chance = (
+                    not standard_retry_available
+                    and remaining_edit_target_second_chances > 0
+                    and self._is_edit_target_error(str(exc))
+                )
                 missing_repo_file_second_chance = (
                     not standard_retry_available
                     and remaining_missing_repo_file_second_chances > 0
@@ -265,6 +276,7 @@ class AgentRunner:
                 if (
                     not standard_retry_available
                     and not directory_path_second_chance
+                    and not edit_target_second_chance
                     and not missing_relative_path_second_chance
                     and not missing_repo_file_second_chance
                 ):
@@ -273,6 +285,14 @@ class AgentRunner:
                     remaining_directory_path_second_chances -= 1
                     session.record_event(
                         "agent_step_output_directory_path_second_chance_requested",
+                        model=response.model,
+                        attempt=attempt + 1,
+                        error=str(exc),
+                    )
+                if edit_target_second_chance:
+                    remaining_edit_target_second_chances -= 1
+                    session.record_event(
+                        "agent_step_output_edit_target_second_chance_requested",
                         model=response.model,
                         attempt=attempt + 1,
                         error=str(exc),
@@ -335,6 +355,10 @@ class AgentRunner:
                 ),
                 "directory_path_repair": self._build_directory_path_repair(
                     validation_error
+                ),
+                "edit_target_repair": self._build_edit_target_repair(
+                    session=session,
+                    validation_error=validation_error,
                 ),
                 "missing_relative_path_repair": self._build_missing_relative_path_repair(
                     session=session,
@@ -403,6 +427,13 @@ class AgentRunner:
     def _is_directory_path_error(self, validation_error: str) -> bool:
         return "directory path for" in validation_error.lower()
 
+    def _is_edit_target_error(self, validation_error: str) -> bool:
+        lowered = validation_error.lower()
+        return (
+            "off-target edit path for" in lowered
+            or "edit without recent file context for" in lowered
+        )
+
     def _is_missing_relative_path_error(self, validation_error: str) -> bool:
         return "relative_path is required for" in validation_error.lower()
 
@@ -436,6 +467,59 @@ class AgentRunner:
         return {
             "must_choose_file_path": True,
             "suggested_relative_path": suggested_relative_path,
+            "instruction": instruction,
+        }
+
+    def _build_edit_target_repair(
+        self, *, session: TaskSession, validation_error: str
+    ) -> Optional[Dict[str, Any]]:
+        if not self._is_edit_target_error(validation_error):
+            return None
+
+        tool_name = self._extract_edit_target_tool_name(validation_error)
+        attempted_relative_path = self._extract_edit_target_relative_path(
+            validation_error
+        )
+        read_focus = session.build_read_focus_snapshot()
+        primary_target_path = read_focus.get("primary_target_path")
+        recent_context_paths = list(read_focus.get("recent_context_paths") or [])
+
+        instruction = (
+            "The previous tool_request broke the current edit-target binding. "
+            "Return corrected JSON only using the same schema."
+        )
+        if primary_target_path and attempted_relative_path:
+            instruction += (
+                " The active primary target from recent_file_contexts is {0}, "
+                "but the previous output tried to edit {1}."
+            ).format(primary_target_path, attempted_relative_path)
+        elif primary_target_path:
+            instruction += (
+                " The active primary target from recent_file_contexts is {0}."
+            ).format(primary_target_path)
+        elif attempted_relative_path:
+            instruction += " The previous output tried to edit {0} without context.".format(
+                attempted_relative_path
+            )
+
+        if primary_target_path and tool_name in {"file_patch", "write_file"}:
+            instruction += " Prefer {0} on {1}.".format(
+                tool_name, primary_target_path
+            )
+        if attempted_relative_path and attempted_relative_path != primary_target_path:
+            instruction += (
+                " Do not edit {0} unless you first read that file in the current repo state."
+            ).format(attempted_relative_path)
+        elif attempted_relative_path:
+            instruction += " Read {0} before editing it if you still need that target.".format(
+                attempted_relative_path
+            )
+
+        return {
+            "tool_type": tool_name,
+            "attempted_relative_path": attempted_relative_path,
+            "primary_target_path": primary_target_path,
+            "recent_context_paths": recent_context_paths,
             "instruction": instruction,
         }
 
@@ -567,6 +651,30 @@ class AgentRunner:
         if not match:
             return None
         return match.group(1).strip().lower()
+
+    def _extract_edit_target_tool_name(
+        self, validation_error: str
+    ) -> Optional[str]:
+        match = re.search(
+            r"for ([a-z_]+):",
+            validation_error,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            return None
+        return match.group(1).strip().lower()
+
+    def _extract_edit_target_relative_path(
+        self, validation_error: str
+    ) -> Optional[str]:
+        match = re.search(
+            r"for [a-z_]+: ([^\n]+?)\.",
+            validation_error,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            return None
+        return match.group(1).strip()
 
     def _extract_reread_relative_path(self, validation_error: str) -> Optional[str]:
         match = re.search(

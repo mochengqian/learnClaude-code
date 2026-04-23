@@ -598,6 +598,135 @@ class AgentRunnerTest(unittest.TestCase):
             )
         )
 
+    def test_run_next_step_grants_edit_without_read_second_chance_repair(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        session.update_plan("1. Inspect\n2. Fix\n3. Test")
+        session.approve_plan()
+        self.seed_todos(session)
+        source_dir = session.repo_path / "demo_app"
+        source_dir.mkdir()
+        (source_dir / "string_tools.py").write_text(
+            'def slugify_title(value: str) -> str:\n    return value.replace(" ", "_")\n',
+            encoding="utf-8",
+        )
+        runner = AgentRunner(
+            FakeModelClient(
+                [
+                    (
+                        '{"summary":"Patch the slug helper immediately.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{'
+                        '"tool_type":"file_patch",'
+                        '"relative_path":"demo_app/string_tools.py",'
+                        '"expected_old_snippet":"return value.replace(\\" \\", \\"_\\")",'
+                        '"new_snippet":"return value.replace(\\" \\", \\"-\\")"'
+                        "}}"
+                    ),
+                    (
+                        '{"summary":"Still patch it directly.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{'
+                        '"tool_type":"file_patch",'
+                        '"relative_path":"demo_app/string_tools.py",'
+                        '"expected_old_snippet":"return value.replace(\\" \\", \\"_\\")",'
+                        '"new_snippet":"return value.replace(\\" \\", \\"-\\")"'
+                        "}}"
+                    ),
+                    (
+                        '{"summary":"Read the slug helper first.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{"tool_type":"read_file","relative_path":"demo_app/string_tools.py"}}'
+                    ),
+                ]
+            )
+        )
+
+        outcome = runner.run_next_step(session)
+
+        self.assertEqual("request_tool", outcome.decision.action)
+        self.assertEqual("executed", outcome.tool_result.status)
+        self.assertEqual("read_file", outcome.tool_result.tool_name)
+        event_types = [event.event_type for event in session.timeline]
+        self.assertIn(
+            "agent_step_output_edit_target_second_chance_requested",
+            event_types,
+        )
+
+    def test_run_next_step_grants_off_target_edit_second_chance_repair(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        session.update_plan("1. Inspect\n2. Fix\n3. Test")
+        session.approve_plan()
+        self.seed_todos(session)
+        source_dir = session.repo_path / "demo_app"
+        source_dir.mkdir()
+        (source_dir / "number_tools.py").write_text(
+            "def clamp(value: int, lower: int, upper: int) -> int:\n    return value\n",
+            encoding="utf-8",
+        )
+        readme_result = session.request_tool(FileReadRequest(relative_path="README.md"))
+        source_result = session.request_tool(
+            FileReadRequest(relative_path="demo_app/number_tools.py")
+        )
+        self.assertEqual("executed", readme_result.status)
+        self.assertEqual("executed", source_result.status)
+        runner = AgentRunner(
+            FakeModelClient(
+                [
+                    (
+                        '{"summary":"Patch the README note.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{'
+                        '"tool_type":"file_patch",'
+                        '"relative_path":"README.md",'
+                        '"expected_old_snippet":"hello\\n",'
+                        '"new_snippet":"hello\\nfixed\\n"'
+                        "}}"
+                    ),
+                    (
+                        '{"summary":"Still patch the README note.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{'
+                        '"tool_type":"file_patch",'
+                        '"relative_path":"README.md",'
+                        '"expected_old_snippet":"hello\\n",'
+                        '"new_snippet":"hello\\nfixed\\n"'
+                        "}}"
+                    ),
+                    (
+                        '{"summary":"Patch the number helper instead.",'
+                        '"action":"request_tool",'
+                        '"tool_request":{'
+                        '"tool_type":"file_patch",'
+                        '"relative_path":"demo_app/number_tools.py",'
+                        '"expected_old_snippet":"return value",'
+                        '"new_snippet":"return lower if value < lower else value"'
+                        "}}"
+                    ),
+                ]
+            )
+        )
+
+        outcome = runner.run_next_step(session)
+
+        self.assertEqual("request_tool", outcome.decision.action)
+        self.assertEqual("approval_required", outcome.tool_result.status)
+        self.assertEqual("file_patch", outcome.tool_result.tool_name)
+        event_types = [event.event_type for event in session.timeline]
+        self.assertIn(
+            "agent_step_output_edit_target_second_chance_requested",
+            event_types,
+        )
+        event_payloads = [
+            event.payload
+            for event in session.timeline
+            if event.event_type == "agent_step_output_invalid"
+        ]
+        self.assertTrue(
+            any("off-target edit path" in payload.get("error", "") for payload in event_payloads)
+        )
+
     def test_run_next_step_allows_file_patch_after_recent_read(self):
         temp_dir, session = self.make_session()
         self.addCleanup(temp_dir.cleanup)

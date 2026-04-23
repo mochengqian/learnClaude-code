@@ -122,9 +122,7 @@ def derive_failure_reason(
     if stop_reason == "tool_blocked":
         return "tool_blocked"
     if stop_reason == "tool_failed":
-        if "expected_old_snippet" in last_failure_message:
-            return "bad_patch"
-        return "tool_failed"
+        return _classify_tool_failure(last_failure_message)
     if verification.status != "executed":
         return "verification_failed"
     if verification.exit_code not in {0, None}:
@@ -143,6 +141,8 @@ def classify_runner_failure(last_failure_message: str) -> str:
         return "readme_reread"
     if "recent context for that file is already available" in message:
         return "same_file_reread"
+    if "off-target edit path for" in message:
+        return "off_target_edit"
     if "relative_path is required" in message:
         return "missing_relative_path"
     if "edit without recent file context for file_patch" in message:
@@ -164,6 +164,17 @@ def classify_runner_failure(last_failure_message: str) -> str:
     ):
         return "invalid_model_output"
     return "runner_failed"
+
+
+def _classify_tool_failure(last_failure_message: str) -> str:
+    message = last_failure_message.strip().lower()
+    if "expected_old_snippet" in message:
+        return "bad_patch"
+    if "file_patch produced no changes for readme.md" in message:
+        return "off_target_edit"
+    if "file_patch produced no changes for " in message:
+        return "bad_patch_target"
+    return "tool_failed"
 
 
 def _is_model_transport_failure(message: str) -> bool:

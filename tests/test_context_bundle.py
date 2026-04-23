@@ -161,6 +161,30 @@ class ContextBundleTest(unittest.TestCase):
             "recent_file_contexts",
             bundle["read_focus"]["instruction"],
         )
+        self.assertIn(
+            "Keep edits on demo_app/app.py",
+            bundle["read_focus"]["instruction"],
+        )
+
+    def test_builder_prefers_source_file_as_primary_target_after_readme_read(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+
+        readme_result = session.request_tool(FileReadRequest(relative_path="README.md"))
+        app_result = session.request_tool(FileReadRequest(relative_path="demo_app/app.py"))
+        self.assertEqual("executed", readme_result.status)
+        self.assertEqual("executed", app_result.status)
+
+        bundle = ContextBundleBuilder().build(session)
+
+        self.assertEqual(
+            "demo_app/app.py",
+            bundle["read_focus"]["primary_target_path"],
+        )
+        self.assertEqual(
+            ["README.md", "demo_app/app.py"],
+            bundle["read_focus"]["recent_context_paths"],
+        )
 
     def test_agent_step_prompt_includes_context_bundle(self):
         temp_dir, session = self.make_session()

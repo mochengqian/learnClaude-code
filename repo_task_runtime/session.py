@@ -248,6 +248,12 @@ class TaskSession:
         self, request: ToolInvocationRequest
     ) -> Optional[str]:
         if isinstance(request, FilePatchRequest):
+            target_binding_error = self._validate_edit_target_binding(
+                request.relative_path,
+                tool_name="file_patch",
+            )
+            if target_binding_error:
+                return target_binding_error
             if self._has_recent_file_context(request.relative_path):
                 return None
             return (
@@ -259,6 +265,12 @@ class TaskSession:
 
         if isinstance(request, WriteFileRequest):
             candidate = self._resolve_repo_path(request.relative_path)
+            target_binding_error = self._validate_edit_target_binding(
+                request.relative_path,
+                tool_name="write_file",
+            )
+            if target_binding_error:
+                return target_binding_error
             if not candidate.exists():
                 return None
             if self._has_recent_file_context(request.relative_path):
@@ -305,14 +317,7 @@ class TaskSession:
         recent_context_paths = [
             item.relative_path for item in self.recent_file_contexts
         ]
-        primary_target_path = next(
-            (
-                path
-                for path in reversed(recent_context_paths)
-                if not self._is_readme_path(path)
-            ),
-            recent_context_paths[-1] if recent_context_paths else None,
-        )
+        primary_target_path = self.current_primary_target_path()
 
         avoid_reread_paths: List[str] = []
         preferred_next_action = "gather_context"
@@ -347,6 +352,10 @@ class TaskSession:
                 "recent_file_contexts instead of rereading these files, then prefer "
                 "file_patch/write_file or run_test."
             )
+            if primary_target_path:
+                instruction += " Keep edits on {0} unless you first read a different target file.".format(
+                    primary_target_path
+                )
 
         return {
             "recent_context_paths": recent_context_paths,
@@ -355,6 +364,25 @@ class TaskSession:
             "preferred_next_action": preferred_next_action,
             "instruction": instruction,
         }
+
+    def current_primary_target_path(self) -> Optional[str]:
+        for item in reversed(self.recent_file_contexts):
+            relative_path = item.relative_path
+            if self._is_readme_path(relative_path):
+                continue
+            if self._is_test_like_relative_path(relative_path):
+                continue
+            return Path(relative_path).as_posix()
+
+        for item in reversed(self.recent_file_contexts):
+            relative_path = item.relative_path
+            if self._is_readme_path(relative_path):
+                continue
+            return Path(relative_path).as_posix()
+
+        if not self.recent_file_contexts:
+            return None
+        return Path(self.recent_file_contexts[-1].relative_path).as_posix()
 
     def _execute_request(
         self, request: ToolInvocationRequest, approved_by: Optional[str]
@@ -852,6 +880,9 @@ class TaskSession:
     def _is_code_like_file(self, relative_path: Path) -> bool:
         return relative_path.suffix.lower() in _CODE_FILE_SUFFIXES
 
+    def _is_test_like_relative_path(self, relative_path: str) -> bool:
+        return self._file_kind_rank(Path(relative_path)) == 1
+
     def _is_hidden_relative_path(self, relative_path: Path) -> bool:
         return any(part.startswith(".") for part in relative_path.parts)
 
@@ -891,6 +922,24 @@ class TaskSession:
         return any(
             item.relative_path == relative_path for item in self.recent_file_contexts
         )
+
+    def _validate_edit_target_binding(
+        self, relative_path: str, *, tool_name: str
+    ) -> Optional[str]:
+        primary_target_path = self.current_primary_target_path()
+        if primary_target_path is None:
+            return None
+
+        normalized_relative_path = Path(relative_path).as_posix()
+        normalized_primary_target = Path(primary_target_path).as_posix()
+        if normalized_relative_path == normalized_primary_target:
+            return None
+
+        return (
+            "Model selected an off-target edit path for {0}: {1}. "
+            "The current primary target from recent file context is {2}. "
+            "Keep the edit on {2}, or read {1} first if you truly need to switch targets."
+        ).format(tool_name, normalized_relative_path, normalized_primary_target)
 
     def _should_block_same_file_reread(self, relative_path: str) -> bool:
         if not self._has_recent_file_context(relative_path):
