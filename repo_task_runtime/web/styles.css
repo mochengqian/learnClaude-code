@@ -219,6 +219,12 @@ button.secondary:hover {
   color: var(--muted);
 }
 
+.todo-pill {
+  max-width: 100%;
+  white-space: normal;
+  line-height: 1.35;
+}
+
 .kind-badge,
 .state-badge {
   font-weight: 700;

@@ -39,9 +39,9 @@ function appendMutedMessage(node, message) {
   node.appendChild(text);
 }
 
-function createMetaPill(label, value) {
+function createMetaPill(label, value, className = "") {
   const pill = document.createElement("span");
-  pill.className = "meta-pill";
+  pill.className = className ? `meta-pill ${className}` : "meta-pill";
   const strong = document.createElement("strong");
   strong.textContent = `${label}:`;
   pill.appendChild(strong);
@@ -103,6 +103,59 @@ function summarizeLatestDiff(session) {
     return createStateBadge("diff", "clean", "none");
   }
   return createStateBadge("diff", `${diff.length} chars`, "dirty");
+}
+
+function buildTodoSummary(session) {
+  const counts = {
+    in_progress: 0,
+    pending: 0,
+    completed: 0,
+  };
+  const todos = Array.isArray(session && session.todos) ? session.todos : [];
+
+  todos.forEach((todo) => {
+    const status = String(todo.status || "pending").toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(counts, status)) {
+      counts[status] += 1;
+    }
+  });
+
+  return {
+    counts,
+    activeTodo: todos.find((todo) => String(todo.status || "").toLowerCase() === "in_progress") || null,
+    nextPendingTodo: todos.find((todo) => String(todo.status || "").toLowerCase() === "pending") || null,
+  };
+}
+
+function summarizeTodoLabel(todo) {
+  if (!todo) {
+    return "none";
+  }
+  return String(todo.content || todo.active_form || "none");
+}
+
+function summarizePlanMode(session) {
+  const isPlanMode = session && session.permission_mode === "plan";
+  return createStateBadge("plan mode", isPlanMode ? "active" : "exited", isPlanMode ? "dirty" : "good");
+}
+
+function appendPlanTodoSummary(node, session) {
+  const summary = buildTodoSummary(session);
+  node.appendChild(
+    createSummaryRow(
+      summarizePlanMode(session),
+      createStateBadge("in_progress", String(summary.counts.in_progress), summary.counts.in_progress ? "dirty" : "none"),
+      createStateBadge("pending", String(summary.counts.pending), summary.counts.pending ? "none" : "good"),
+      createStateBadge("completed", String(summary.counts.completed), summary.counts.completed ? "good" : "none"),
+    ),
+  );
+  node.appendChild(
+    createSummaryRow(
+      createMetaPill("active todo", summarizeTodoLabel(summary.activeTodo), "todo-pill"),
+      createMetaPill("next pending", summarizeTodoLabel(summary.nextPendingTodo), "todo-pill"),
+    ),
+  );
+  return summary;
 }
 
 function appendRepoStateSummary(node, session) {
@@ -181,6 +234,7 @@ function renderSnapshot(session) {
   elements.snapshotSummary.appendChild(
     createSummaryRow(createMetaPill("pending approvals", String(session.pending_approvals.length))),
   );
+  const todoSummary = appendPlanTodoSummary(elements.snapshotSummary, session);
   appendRepoStateSummary(elements.snapshotSummary, session);
   elements.snapshotPanel.textContent = JSON.stringify(
     {
@@ -190,6 +244,10 @@ function renderSnapshot(session) {
       permission_mode: session.permission_mode,
       plan: session.plan,
       todos: session.todos,
+      plan_mode_exited: session.permission_mode !== "plan",
+      todo_counts: todoSummary.counts,
+      active_todo: summarizeTodoLabel(todoSummary.activeTodo),
+      next_pending_todo: summarizeTodoLabel(todoSummary.nextPendingTodo),
       pending_approvals: session.pending_approvals.length,
       latest_tool_result: session.latest_tool_result,
       latest_successful_test: session.latest_successful_test,
