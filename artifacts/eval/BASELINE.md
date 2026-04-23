@@ -216,3 +216,38 @@ Case outcomes:
 - `slug_join`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
 - `clamp_lower_bound`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
 - `compact_whitespace`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+
+## Approval Timeline Explainability Checkpoint (2026-04-23)
+
+- Commit: `d2cd709`
+- Model: `RightCode / gpt-5.4-mini`
+- Eval command source:
+  - `artifacts/eval/rightcode-gpt-5.4-mini-auto_approve_edits.json`
+  - `artifacts/eval/rightcode-gpt-5.4-mini-stop_on_request.json`
+- Notes: `Approval kind is now structured directly into ApprovalRequest, ToolExecutionResult, and approval timeline events. Runtime explainability improved without regressing auto_approve_edits or duplicate-read behavior.`
+
+### auto_approve_edits
+
+- Passed: `3/3`
+- Average steps: `5.67`
+- Average duplicate reads: `0.0`
+- Cases with same-file rereads: `0`
+- Failure reasons: `{}`
+
+Case outcomes:
+- `slug_join`: `PASS`, stop=`finished`, failure=`-`
+- `clamp_lower_bound`: `PASS`, stop=`finished`, failure=`-`
+- `compact_whitespace`: `PASS`, stop=`finished`, failure=`-`
+
+### stop_on_request
+
+- Passed: `0/3`
+- Average steps: `4.0`
+- Average duplicate reads: `0.0`
+- Cases with same-file rereads: `0`
+- Failure reasons: `{"edit_approval_required": 3}`
+
+Case outcomes:
+- `slug_join`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `clamp_lower_bound`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `compact_whitespace`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
