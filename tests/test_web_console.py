@@ -31,6 +31,8 @@ class WebConsoleTest(unittest.TestCase):
         self.assertIn("Draft Plan With Model", response.text)
         self.assertIn("Run Agent Step", response.text)
         self.assertIn("Run Agent Loop", response.text)
+        self.assertIn('id="snapshot-summary"', response.text)
+        self.assertIn('id="latest-result-summary"', response.text)
 
     def test_assets_are_served(self):
         js_response = self.client.get("/assets/app.js")
@@ -41,5 +43,10 @@ class WebConsoleTest(unittest.TestCase):
         self.assertIn("agent-plan-button", js_response.text)
         self.assertIn("agent-step-button", js_response.text)
         self.assertIn("agent-loop-button", js_response.text)
+        self.assertIn("createApprovalKindBadge", js_response.text)
+        self.assertIn("approval_kind", js_response.text)
+        self.assertIn("latestResultSummary", js_response.text)
         self.assertNotIn('.split(" ")', js_response.text)
         self.assertIn("--accent", css_response.text)
+        self.assertIn(".kind-badge", css_response.text)
+        self.assertIn(".summary-stack", css_response.text)

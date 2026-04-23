@@ -183,6 +183,65 @@ button.secondary:hover {
   margin-bottom: 12px;
 }
 
+.summary-stack,
+.meta-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.summary-stack {
+  margin-bottom: 12px;
+}
+
+.meta-row {
+  align-items: center;
+}
+
+.meta-pill,
+.kind-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 0.82rem;
+}
+
+.meta-pill strong {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.kind-badge {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.kind-edit {
+  background: rgba(13, 107, 92, 0.12);
+  color: var(--accent-strong);
+}
+
+.kind-shell {
+  background: rgba(194, 120, 52, 0.18);
+  color: #8a4700;
+}
+
+.kind-test {
+  background: rgba(60, 96, 191, 0.14);
+  color: #23458c;
+}
+
+.kind-none {
+  color: var(--muted);
+}
+
 pre {
   margin: 0;
   padding: 14px;
@@ -208,6 +267,28 @@ pre {
   border-radius: 16px;
   padding: 12px;
   background: rgba(255, 255, 255, 0.55);
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.approval-card p,
+.timeline-item p {
+  margin: 0;
+}
+
+.approval-card pre,
+.timeline-item pre {
+  min-height: 0;
+  margin-top: 10px;
+  padding: 10px 12px;
+  font-size: 0.82rem;
 }
 
 .approval-actions {

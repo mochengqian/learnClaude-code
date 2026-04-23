@@ -8,8 +8,10 @@ const state = {
 const elements = {
   currentSessionId: document.getElementById("current-session-id"),
   statusMessage: document.getElementById("status-message"),
+  snapshotSummary: document.getElementById("snapshot-summary"),
   snapshotPanel: document.getElementById("snapshot-panel"),
   approvalsPanel: document.getElementById("approvals-panel"),
+  latestResultSummary: document.getElementById("latest-result-summary"),
   diffPanel: document.getElementById("diff-panel"),
   timelinePanel: document.getElementById("timeline-panel"),
   repoPathInput: document.getElementById("repo-path-input"),
@@ -25,6 +27,64 @@ const elements = {
   toolCommandInput: document.getElementById("tool-command-input"),
   agentLoopMaxStepsInput: document.getElementById("agent-loop-max-steps-input"),
 };
+
+function clearNode(node) {
+  node.innerHTML = "";
+}
+
+function appendMutedMessage(node, message) {
+  const text = document.createElement("p");
+  text.className = "muted";
+  text.textContent = message;
+  node.appendChild(text);
+}
+
+function createMetaPill(label, value) {
+  const pill = document.createElement("span");
+  pill.className = "meta-pill";
+  const strong = document.createElement("strong");
+  strong.textContent = `${label}:`;
+  pill.appendChild(strong);
+  pill.append(document.createTextNode(` ${value || "none"}`));
+  return pill;
+}
+
+function createApprovalKindBadge(kind) {
+  const badge = document.createElement("span");
+  badge.className = `kind-badge kind-${kind || "none"}`;
+  badge.textContent = `approval:${(kind || "none").toUpperCase()}`;
+  return badge;
+}
+
+function createSummaryRow(...nodes) {
+  const row = document.createElement("div");
+  row.className = "meta-row";
+  nodes.filter(Boolean).forEach((node) => row.appendChild(node));
+  return row;
+}
+
+function approvalKindFromPayload(payload) {
+  if (!payload) {
+    return null;
+  }
+  return payload.approval_kind || (payload.approval && payload.approval.approval_kind) || null;
+}
+
+function renderResultSummary(node, result) {
+  clearNode(node);
+  if (!result) {
+    appendMutedMessage(node, "No tool result yet.");
+    return;
+  }
+
+  node.appendChild(
+    createSummaryRow(
+      createMetaPill("tool", result.tool_name || "unknown"),
+      createMetaPill("status", result.status || "unknown"),
+      createApprovalKindBadge(result.approval_kind),
+    ),
+  );
+}
 
 function setStatus(message, isError = false) {
   elements.statusMessage.textContent = message;
@@ -60,6 +120,19 @@ async function apiFetch(path, options = {}) {
 
 function renderSnapshot(session) {
   elements.currentSessionId.textContent = session.session_id;
+  const latestApprovalKind = session.latest_tool_result
+    ? session.latest_tool_result.approval_kind
+    : session.pending_approvals[0]
+      ? session.pending_approvals[0].approval_kind
+      : null;
+  renderResultSummary(elements.snapshotSummary, {
+    tool_name: session.latest_tool_result ? session.latest_tool_result.tool_name : "none",
+    status: session.latest_tool_result ? session.latest_tool_result.status : "idle",
+    approval_kind: latestApprovalKind,
+  });
+  elements.snapshotSummary.appendChild(
+    createSummaryRow(createMetaPill("pending approvals", String(session.pending_approvals.length))),
+  );
   elements.snapshotPanel.textContent = JSON.stringify(
     {
       session_id: session.session_id,
@@ -87,15 +160,40 @@ function renderApprovals(session) {
   approvals.forEach((approval) => {
     const wrapper = document.createElement("div");
     wrapper.className = "approval-card";
-    wrapper.innerHTML = `
-      <strong>${approval.tool_name}</strong>
-      <p>${approval.reason}</p>
-      <pre>${JSON.stringify(approval.request, null, 2)}</pre>
-      <div class="approval-actions">
-        <button data-approval-id="${approval.approval_id}" data-approve="true">Approve Once</button>
-        <button class="secondary" data-approval-id="${approval.approval_id}" data-approve="false">Reject</button>
-      </div>
-    `;
+    const head = document.createElement("div");
+    head.className = "card-head";
+    const title = document.createElement("strong");
+    title.textContent = approval.tool_name;
+    head.appendChild(title);
+    head.appendChild(createApprovalKindBadge(approval.approval_kind));
+
+    const reason = document.createElement("p");
+    reason.textContent = approval.reason;
+
+    const requestPreview = document.createElement("pre");
+    requestPreview.textContent = JSON.stringify(approval.request, null, 2);
+
+    const actions = document.createElement("div");
+    actions.className = "approval-actions";
+
+    const approveButton = document.createElement("button");
+    approveButton.dataset.approvalId = approval.approval_id;
+    approveButton.dataset.approve = "true";
+    approveButton.textContent = "Approve Once";
+
+    const rejectButton = document.createElement("button");
+    rejectButton.className = "secondary";
+    rejectButton.dataset.approvalId = approval.approval_id;
+    rejectButton.dataset.approve = "false";
+    rejectButton.textContent = "Reject";
+
+    actions.appendChild(approveButton);
+    actions.appendChild(rejectButton);
+
+    wrapper.appendChild(head);
+    wrapper.appendChild(reason);
+    wrapper.appendChild(requestPreview);
+    wrapper.appendChild(actions);
     elements.approvalsPanel.appendChild(wrapper);
   });
 }
@@ -105,6 +203,7 @@ function renderDiff(
   result = state.latestResult || session.latest_tool_result,
   agent = state.latestAgent,
 ) {
+  renderResultSummary(elements.latestResultSummary, result);
   const resultSummary = result ? JSON.stringify(result, null, 2) : "No tool result yet.";
   const diff = session.latest_diff || "No diff yet.";
   const agentSummary = agent ? `${JSON.stringify(agent, null, 2)}\n\n--- tool result ---\n\n` : "";
@@ -125,11 +224,25 @@ function renderTimeline(session) {
     .forEach((event) => {
       const item = document.createElement("div");
       item.className = "timeline-item";
-      item.innerHTML = `
-        <strong>${event.event_type}</strong>
-        <p class="muted">${event.created_at}</p>
-        <pre>${JSON.stringify(event.payload, null, 2)}</pre>
-      `;
+      const head = document.createElement("div");
+      head.className = "card-head";
+
+      const title = document.createElement("strong");
+      title.textContent = event.event_type;
+      head.appendChild(title);
+
+      head.appendChild(createApprovalKindBadge(approvalKindFromPayload(event.payload)));
+
+      const createdAt = document.createElement("p");
+      createdAt.className = "muted";
+      createdAt.textContent = event.created_at;
+
+      const payloadPreview = document.createElement("pre");
+      payloadPreview.textContent = JSON.stringify(event.payload, null, 2);
+
+      item.appendChild(head);
+      item.appendChild(createdAt);
+      item.appendChild(payloadPreview);
       elements.timelinePanel.appendChild(item);
     });
 }
