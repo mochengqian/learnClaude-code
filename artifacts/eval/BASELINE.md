@@ -321,3 +321,44 @@ Case outcomes:
 - `slug_join`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
 - `clamp_lower_bound`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
 - `compact_whitespace`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+
+## M3 Eval Expansion Checkpoint (2026-04-23)
+
+- Commit: `7390d8d`
+- Model: `RightCode / gpt-5.4-mini`
+- Eval command source:
+  - `artifacts/eval/rightcode-gpt-5.4-mini-m3-eval-expansion-auto_approve_edits.json`
+  - `artifacts/eval/rightcode-gpt-5.4-mini-m3-eval-expansion-stop_on_request.json`
+- Notes: `The eval pack now covers 6 repo-local cases. Read-focus stayed stable with 0.0 duplicate reads. The only auto_approve_edits miss was a plan-stage invalid JSON on multi_file_context_single_edit, so the next control-plane gap is plan output repair rather than product expansion.`
+
+### auto_approve_edits
+
+- Passed: `5/6`
+- Average steps: `4.67`
+- Average duplicate reads: `0.0`
+- Cases with same-file rereads: `0`
+- Failure reasons: `{"invalid_model_output": 1}`
+
+Case outcomes:
+- `slug_join`: `PASS`, stop=`finished`, failure=`-`
+- `clamp_lower_bound`: `PASS`, stop=`finished`, failure=`-`
+- `compact_whitespace`: `PASS`, stop=`finished`, failure=`-`
+- `implementation_only_change`: `PASS`, stop=`finished`, failure=`-`
+- `failing_test_points_to_source`: `PASS`, stop=`finished`, failure=`-`
+- `multi_file_context_single_edit`: `FAIL`, stop=`runner_failed`, failure=`invalid_model_output`
+
+### stop_on_request
+
+- Passed: `0/6`
+- Average steps: `3.33`
+- Average duplicate reads: `0.0`
+- Cases with same-file rereads: `0`
+- Failure reasons: `{"edit_approval_required": 6}`
+
+Case outcomes:
+- `slug_join`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `clamp_lower_bound`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `compact_whitespace`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `implementation_only_change`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `failing_test_points_to_source`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `multi_file_context_single_edit`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
