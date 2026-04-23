@@ -148,6 +148,16 @@ class ApiRuntimeTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         result = response.json()["result"]
         self.assertEqual("approval_required", result["status"])
+        self.assertEqual("edit", result["approval_kind"])
+        session = response.json()["session"]
+        self.assertEqual("edit", session["latest_tool_result"]["approval_kind"])
+        self.assertEqual("edit", session["pending_approvals"][0]["approval_kind"])
+        approval_event = next(
+            event
+            for event in session["timeline"]
+            if event["event_type"] == "approval_requested"
+        )
+        self.assertEqual("edit", approval_event["payload"]["approval_kind"])
         approval_id = result["approval_id"]
 
         response = client.post(
@@ -157,8 +167,41 @@ class ApiRuntimeTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         result = response.json()["result"]
         self.assertEqual("executed", result["status"])
+        self.assertEqual("edit", result["approval_kind"])
         self.assertTrue((self.repo_path / "notes.txt").exists())
         self.assertIn("notes.txt", response.json()["session"]["latest_diff"])
+
+    def test_shell_approval_kind_is_exposed_over_http(self):
+        client = self.make_client()
+        response = client.post(
+            "/sessions",
+            json={"repo_path": str(self.repo_path), "task_input": "Inspect with shell"},
+        )
+        session_id = response.json()["session"]["session_id"]
+        client.post(
+            f"/sessions/{session_id}/plan",
+            json={"plan_markdown": "1. Inspect\n2. Verify"},
+        )
+        client.post(f"/sessions/{session_id}/plan/approve")
+
+        response = client.post(
+            f"/sessions/{session_id}/tools",
+            json={
+                "tool_type": "shell",
+                "command": ["python3", "-c", "print('hi')"],
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        result = response.json()["result"]
+        self.assertEqual("approval_required", result["status"])
+        self.assertEqual("shell", result["approval_kind"])
+        approval_event = next(
+            event
+            for event in response.json()["session"]["timeline"]
+            if event["event_type"] == "approval_requested"
+        )
+        self.assertEqual("shell", approval_event["payload"]["approval_kind"])
 
     def test_file_patch_approval_flow_over_http(self):
         client = self.make_client()
@@ -384,6 +427,10 @@ class ApiRuntimeTest(unittest.TestCase):
         self.assertEqual(
             "approval_required",
             payload["agent"]["steps"][1]["tool_result"]["status"],
+        )
+        self.assertEqual(
+            "edit",
+            payload["agent"]["steps"][1]["tool_result"]["approval_kind"],
         )
         self.assertEqual("completed", payload["session"]["todos"][0]["status"])
         self.assertEqual("in_progress", payload["session"]["todos"][1]["status"])

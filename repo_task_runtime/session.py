@@ -8,7 +8,9 @@ from uuid import uuid4
 from .approval import ApprovalPolicy
 from .diffing import build_unified_diff, repo_git_diff
 from .models import (
+    ApprovalKind,
     ApprovalRequest,
+    approval_kind_for_request,
     FilePatchRequest,
     FileReadRequest,
     PermissionMode,
@@ -144,15 +146,25 @@ class TaskSession:
 
         if decision.behavior == "ask":
             approval_id = uuid4().hex
+            approval_kind = approval_kind_for_request(request)
+            if approval_kind is None:
+                raise ValueError(
+                    "Approval kind is missing for tool request: {0}".format(tool_name)
+                )
             approval = ApprovalRequest(
                 approval_id=approval_id,
                 tool_name=tool_name,
+                approval_kind=approval_kind,
                 reason=decision.reason,
                 request=request,
             )
             self.pending_approvals[approval_id] = approval
             self._record(
                 "approval_requested",
+                approval_id=approval_id,
+                tool_name=tool_name,
+                approval_kind=approval_kind.value,
+                reason=decision.reason,
                 approval=approval.to_dict(),
             )
             result = ToolExecutionResult(
@@ -160,11 +172,16 @@ class TaskSession:
                 tool_name=tool_name,
                 message=decision.reason,
                 approval_id=approval_id,
+                approval_kind=approval_kind,
             )
             self.latest_tool_result = result
             return result
 
-        return self._run_execute_request(request, approved_by=None)
+        return self._run_execute_request(
+            request,
+            approved_by=None,
+            approval_kind=None,
+        )
 
     def resolve_approval(self, approval_id: str, approve: bool) -> ToolExecutionResult:
         approval = self.pending_approvals.pop(approval_id, None)
@@ -176,12 +193,14 @@ class TaskSession:
                 "approval_rejected",
                 approval_id=approval_id,
                 tool_name=approval.tool_name,
+                approval_kind=approval.approval_kind.value,
             )
             result = ToolExecutionResult(
                 status="rejected",
                 tool_name=approval.tool_name,
                 message="User rejected the approval request.",
                 approval_id=approval_id,
+                approval_kind=approval.approval_kind,
             )
             self.latest_tool_result = result
             return result
@@ -190,8 +209,13 @@ class TaskSession:
             "approval_granted",
             approval_id=approval_id,
             tool_name=approval.tool_name,
+            approval_kind=approval.approval_kind.value,
         )
-        return self._run_execute_request(approval.request, approved_by=approval_id)
+        return self._run_execute_request(
+            approval.request,
+            approved_by=approval_id,
+            approval_kind=approval.approval_kind,
+        )
 
     def snapshot(self) -> TaskSnapshot:
         return TaskSnapshot(
@@ -421,7 +445,10 @@ class TaskSession:
         return Path(self.recent_file_contexts[-1].relative_path).as_posix()
 
     def _execute_request(
-        self, request: ToolInvocationRequest, approved_by: Optional[str]
+        self,
+        request: ToolInvocationRequest,
+        approved_by: Optional[str],
+        approval_kind: Optional[ApprovalKind],
     ) -> ToolExecutionResult:
         tool_name = tool_name_for_request(request)
         repo_state_mutated = False
@@ -438,6 +465,7 @@ class TaskSession:
                 status="executed",
                 tool_name=tool_name,
                 message="Read file successfully.",
+                approval_kind=approval_kind,
                 data={
                     "relative_path": request.relative_path,
                     "content": content,
@@ -493,6 +521,7 @@ class TaskSession:
                 status="executed",
                 tool_name=tool_name,
                 message="Patched file successfully.",
+                approval_kind=approval_kind,
                 diff=file_diff,
                 data={
                     "relative_path": request.relative_path,
@@ -520,6 +549,7 @@ class TaskSession:
                 status="executed",
                 tool_name=tool_name,
                 message="Wrote file successfully.",
+                approval_kind=approval_kind,
                 diff=file_diff,
                 data={"relative_path": request.relative_path},
             )
@@ -541,6 +571,7 @@ class TaskSession:
                 status="executed",
                 tool_name=tool_name,
                 message="Command completed.",
+                approval_kind=approval_kind,
                 stdout=completed.stdout,
                 stderr=completed.stderr,
                 exit_code=completed.returncode,
@@ -567,6 +598,9 @@ class TaskSession:
             "tool_executed",
             tool_name=tool_name,
             approved_by=approved_by,
+            approval_kind=(
+                approval_kind.value if approval_kind is not None else None
+            ),
             request=request_summary(request),
             exit_code=result.exit_code,
         )
@@ -585,11 +619,18 @@ class TaskSession:
         return result
 
     def _run_execute_request(
-        self, request: ToolInvocationRequest, approved_by: Optional[str]
+        self,
+        request: ToolInvocationRequest,
+        approved_by: Optional[str],
+        approval_kind: Optional[ApprovalKind],
     ) -> ToolExecutionResult:
         tool_name = tool_name_for_request(request)
         try:
-            return self._execute_request(request, approved_by=approved_by)
+            return self._execute_request(
+                request,
+                approved_by=approved_by,
+                approval_kind=approval_kind,
+            )
         except subprocess.TimeoutExpired as exc:
             message = "Command timed out after {0} seconds.".format(exc.timeout)
         except (FileNotFoundError, OSError, ValueError) as exc:
@@ -599,6 +640,9 @@ class TaskSession:
             "tool_failed",
             tool_name=tool_name,
             approved_by=approved_by,
+            approval_kind=(
+                approval_kind.value if approval_kind is not None else None
+            ),
             request=request_summary(request),
             message=message,
         )
@@ -606,6 +650,7 @@ class TaskSession:
             status="failed",
             tool_name=tool_name,
             message=message,
+            approval_kind=approval_kind,
         )
         self.latest_tool_result = result
         return result

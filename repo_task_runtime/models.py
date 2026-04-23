@@ -22,6 +22,12 @@ class PermissionMode(str, Enum):
     ACCEPT_EDITS = "accept_edits"
 
 
+class ApprovalKind(str, Enum):
+    EDIT = "edit"
+    SHELL = "shell"
+    TEST = "test"
+
+
 class TodoStatus(str, Enum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
@@ -157,6 +163,16 @@ def tool_name_for_request(request: ToolInvocationRequest) -> str:
     return "shell"
 
 
+def approval_kind_for_request(request: ToolInvocationRequest) -> Optional[ApprovalKind]:
+    if isinstance(request, (FilePatchRequest, WriteFileRequest)):
+        return ApprovalKind.EDIT
+    if isinstance(request, TestCommandRequest):
+        return ApprovalKind.TEST
+    if isinstance(request, ShellCommandRequest):
+        return ApprovalKind.SHELL
+    return None
+
+
 def request_summary(request: ToolInvocationRequest) -> Dict[str, Any]:
     if isinstance(request, FileReadRequest):
         return {"relative_path": request.relative_path}
@@ -186,6 +202,7 @@ def request_summary(request: ToolInvocationRequest) -> Dict[str, Any]:
 class ApprovalRequest:
     approval_id: str
     tool_name: str
+    approval_kind: ApprovalKind
     reason: str
     request: ToolInvocationRequest
     created_at: str = field(default_factory=utc_now_iso)
@@ -194,6 +211,7 @@ class ApprovalRequest:
         return {
             "approval_id": self.approval_id,
             "tool_name": self.tool_name,
+            "approval_kind": self.approval_kind.value,
             "reason": self.reason,
             "created_at": self.created_at,
             "request": request_summary(self.request),
@@ -206,6 +224,7 @@ class ToolExecutionResult:
     tool_name: str
     message: str
     approval_id: Optional[str] = None
+    approval_kind: Optional[ApprovalKind] = None
     stdout: str = ""
     stderr: str = ""
     exit_code: Optional[int] = None
@@ -218,6 +237,9 @@ class ToolExecutionResult:
             "tool_name": self.tool_name,
             "message": self.message,
             "approval_id": self.approval_id,
+            "approval_kind": (
+                self.approval_kind.value if self.approval_kind is not None else None
+            ),
             "stdout": self.stdout,
             "stderr": self.stderr,
             "exit_code": self.exit_code,

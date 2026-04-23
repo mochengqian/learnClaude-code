@@ -104,6 +104,63 @@ class TaskRuntimeTest(unittest.TestCase):
         self.assertIn('+value = "updated"', executed.diff)
         self.assertIn('other = "same"', target.read_text(encoding="utf-8"))
 
+    def test_edit_approval_kind_is_structured_in_snapshot_and_timeline(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        session.approve_plan()
+
+        pending = session.request_tool(
+            WriteFileRequest(relative_path="notes.txt", content="approved\n")
+        )
+
+        self.assertEqual("approval_required", pending.status)
+        self.assertEqual("edit", pending.approval_kind.value)
+        snapshot = session.snapshot()
+        self.assertEqual("edit", snapshot.latest_tool_result.approval_kind.value)
+        self.assertEqual("edit", snapshot.pending_approvals[0].approval_kind.value)
+        approval_requested = next(
+            event for event in session.timeline if event.event_type == "approval_requested"
+        )
+        self.assertEqual("edit", approval_requested.payload["approval_kind"])
+        self.assertEqual("edit", approval_requested.payload["approval"]["approval_kind"])
+
+    def test_shell_approval_kind_is_structured_in_timeline(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        session.approve_plan()
+
+        pending = session.request_tool(
+            ShellCommandRequest(command=("python3", "-c", "print('hi')"))
+        )
+
+        self.assertEqual("approval_required", pending.status)
+        self.assertEqual("shell", pending.approval_kind.value)
+        rejected = session.resolve_approval(pending.approval_id, approve=False)
+        self.assertEqual("rejected", rejected.status)
+        self.assertEqual("shell", rejected.approval_kind.value)
+        approval_events = {
+            event.event_type: event.payload
+            for event in session.timeline
+            if event.event_type in {"approval_requested", "approval_rejected"}
+        }
+        self.assertEqual("shell", approval_events["approval_requested"]["approval_kind"])
+        self.assertEqual("shell", approval_events["approval_rejected"]["approval_kind"])
+
+    def test_test_approval_kind_is_structured_in_snapshot(self):
+        temp_dir, session = self.make_session()
+        self.addCleanup(temp_dir.cleanup)
+        session.approve_plan()
+
+        pending = session.request_tool(
+            TestCommandRequest(command=("python3", "manage.py", "test"))
+        )
+
+        self.assertEqual("approval_required", pending.status)
+        self.assertEqual("test", pending.approval_kind.value)
+        snapshot = session.snapshot()
+        self.assertEqual("test", snapshot.latest_tool_result.approval_kind.value)
+        self.assertEqual("test", snapshot.pending_approvals[0].approval_kind.value)
+
     def test_todo_lifecycle_enforces_single_in_progress(self):
         temp_dir, session = self.make_session()
         self.addCleanup(temp_dir.cleanup)
