@@ -1,6 +1,7 @@
 import json
 import shutil
 import unittest
+from typing import Any, Dict, Optional
 
 from repo_task_runtime import (
     AgentRunner,
@@ -44,6 +45,12 @@ class RuleBasedEvalModelClient:
             return _clamp_response(user_prompt)
         if "compact_whitespace so it trims edges" in user_prompt:
             return _whitespace_response(user_prompt)
+        if "format_status_label so multi-word statuses use hyphens" in user_prompt:
+            return _implementation_only_response(user_prompt)
+        if "failing discount test as the clue" in user_prompt:
+            return _failing_test_points_to_source_response(user_prompt)
+        if "Render messages with the shared DEFAULT_SUFFIX" in user_prompt:
+            return _multi_file_context_response(user_prompt)
         raise AssertionError("Unexpected eval prompt.")
 
 
@@ -327,7 +334,14 @@ class EvalPackTest(unittest.TestCase):
     def test_builtin_eval_cases_are_stable(self):
         cases = builtin_eval_cases()
         self.assertEqual(
-            ["slug_join", "clamp_lower_bound", "compact_whitespace"],
+            [
+                "slug_join",
+                "clamp_lower_bound",
+                "compact_whitespace",
+                "implementation_only_change",
+                "failing_test_points_to_source",
+                "multi_file_context_single_edit",
+            ],
             [case.case_id for case in cases],
         )
 
@@ -339,18 +353,29 @@ class EvalPackTest(unittest.TestCase):
 
         report = runner.run_cases(builtin_eval_cases())
 
-        self.assertEqual(3, report.passed_cases)
+        self.assertEqual(6, report.passed_cases)
         self.assertEqual(0, report.failed_cases)
         self.assertEqual({}, report.failure_reason_counts)
-        self.assertEqual(1.0, report.context_bundle_metrics.average_read_file_calls)
+        self.assertEqual(1.33, report.context_bundle_metrics.average_read_file_calls)
         self.assertEqual(0.0, report.context_bundle_metrics.average_duplicate_read_file_calls)
         self.assertEqual(0, report.context_bundle_metrics.cases_with_same_file_rereads)
+        expected_reads_by_case = {
+            "slug_join": 1,
+            "clamp_lower_bound": 1,
+            "compact_whitespace": 1,
+            "implementation_only_change": 1,
+            "failing_test_points_to_source": 2,
+            "multi_file_context_single_edit": 2,
+        }
         for case in report.case_reports:
             self.assertTrue(case.success)
             self.assertEqual("executed", case.verification_status)
             self.assertEqual(0, case.verification_exit_code)
             self.assertGreaterEqual(case.approvals_auto_resolved, 1)
-            self.assertEqual(1, case.context_bundle_metrics.read_file_calls)
+            self.assertEqual(
+                expected_reads_by_case[case.case_id],
+                case.context_bundle_metrics.read_file_calls,
+            )
             self.assertEqual(0, case.context_bundle_metrics.duplicate_read_file_calls)
             self.assertFalse(case.context_bundle_metrics.same_file_reread_detected)
             self.assertEqual((), case.context_bundle_metrics.same_file_reread_paths)
@@ -640,3 +665,165 @@ def _whitespace_response(user_prompt: str) -> ModelResponse:
         model="gpt-5.4-mini-test",
         usage={"total_tokens": 111},
     )
+
+
+def _implementation_only_response(user_prompt: str) -> ModelResponse:
+    latest_tool = _latest_tool_result(user_prompt)
+    if latest_tool is None:
+        payload = {
+            "summary": "Read the status helper first.",
+            "action": "request_tool",
+            "tool_request": {
+                "tool_type": "read_file",
+                "relative_path": "demo_app/status_tools.py",
+            },
+        }
+    elif _latest_tool_name(latest_tool) == "read_file":
+        payload = {
+            "summary": "Patch the implementation without touching tests.",
+            "action": "request_tool",
+            "tool_request": {
+                "tool_type": "file_patch",
+                "relative_path": "demo_app/status_tools.py",
+                "expected_old_snippet": '.replace(" ", "_")',
+                "new_snippet": '.replace(" ", "-")',
+            },
+        }
+    elif _latest_tool_name(latest_tool) == "file_patch":
+        payload = {
+            "summary": "Run the test suite now.",
+            "action": "request_tool",
+            "tool_request": {
+                "tool_type": "run_test",
+                "command": ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"],
+            },
+        }
+    else:
+        payload = {"summary": "The implementation-only task is done.", "action": "finish"}
+    return ModelResponse(
+        text=json.dumps(payload),
+        model="gpt-5.4-mini-test",
+        usage={"total_tokens": 111},
+    )
+
+
+def _failing_test_points_to_source_response(user_prompt: str) -> ModelResponse:
+    latest_tool = _latest_tool_result(user_prompt)
+    latest_path = _latest_tool_relative_path(latest_tool)
+    if latest_tool is None:
+        payload = {
+            "summary": "Read the failing discount test first.",
+            "action": "request_tool",
+            "tool_request": {
+                "tool_type": "read_file",
+                "relative_path": "tests/test_discounts.py",
+            },
+        }
+    elif _latest_tool_name(latest_tool) == "read_file" and latest_path == "tests/test_discounts.py":
+        payload = {
+            "summary": "Read the source implementation next.",
+            "action": "request_tool",
+            "tool_request": {
+                "tool_type": "read_file",
+                "relative_path": "demo_app/discounts.py",
+            },
+        }
+    elif _latest_tool_name(latest_tool) == "read_file" and latest_path == "demo_app/discounts.py":
+        payload = {
+            "summary": "Patch the percent calculation in source.",
+            "action": "request_tool",
+            "tool_request": {
+                "tool_type": "file_patch",
+                "relative_path": "demo_app/discounts.py",
+                "expected_old_snippet": "discount_cents = price_cents * discount_percent",
+                "new_snippet": "discount_cents = price_cents * discount_percent // 100",
+            },
+        }
+    elif _latest_tool_name(latest_tool) == "file_patch":
+        payload = {
+            "summary": "Run the test suite now.",
+            "action": "request_tool",
+            "tool_request": {
+                "tool_type": "run_test",
+                "command": ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"],
+            },
+        }
+    else:
+        payload = {"summary": "The discount task is done.", "action": "finish"}
+    return ModelResponse(
+        text=json.dumps(payload),
+        model="gpt-5.4-mini-test",
+        usage={"total_tokens": 111},
+    )
+
+
+def _multi_file_context_response(user_prompt: str) -> ModelResponse:
+    latest_tool = _latest_tool_result(user_prompt)
+    latest_path = _latest_tool_relative_path(latest_tool)
+    if latest_tool is None:
+        payload = {
+            "summary": "Read the shared suffix constant first.",
+            "action": "request_tool",
+            "tool_request": {
+                "tool_type": "read_file",
+                "relative_path": "demo_app/format_rules.py",
+            },
+        }
+    elif _latest_tool_name(latest_tool) == "read_file" and latest_path == "demo_app/format_rules.py":
+        payload = {
+            "summary": "Read the formatter implementation next.",
+            "action": "request_tool",
+            "tool_request": {
+                "tool_type": "read_file",
+                "relative_path": "demo_app/message_tools.py",
+            },
+        }
+    elif _latest_tool_name(latest_tool) == "read_file" and latest_path == "demo_app/message_tools.py":
+        payload = {
+            "summary": "Patch only the formatter to use DEFAULT_SUFFIX.",
+            "action": "request_tool",
+            "tool_request": {
+                "tool_type": "file_patch",
+                "relative_path": "demo_app/message_tools.py",
+                "expected_old_snippet": 'return "Hello, {0}{1}".format(normalized, ".")',
+                "new_snippet": 'return "Hello, {0}{1}".format(normalized, DEFAULT_SUFFIX)',
+            },
+        }
+    elif _latest_tool_name(latest_tool) == "file_patch":
+        payload = {
+            "summary": "Run the test suite now.",
+            "action": "request_tool",
+            "tool_request": {
+                "tool_type": "run_test",
+                "command": ["python3", "-m", "unittest", "discover", "-s", "tests", "-v"],
+            },
+        }
+    else:
+        payload = {"summary": "The multi-file context task is done.", "action": "finish"}
+    return ModelResponse(
+        text=json.dumps(payload),
+        model="gpt-5.4-mini-test",
+        usage={"total_tokens": 111},
+    )
+
+
+def _latest_tool_result(user_prompt: str) -> Optional[Dict[str, Any]]:
+    prompt = json.loads(user_prompt)
+    latest_tool = prompt["snapshot"].get("latest_tool_result")
+    if not latest_tool:
+        return None
+    return latest_tool
+
+
+def _latest_tool_name(latest_tool: Optional[Dict[str, Any]]) -> str:
+    if not latest_tool:
+        return ""
+    return str(latest_tool.get("tool_name") or "")
+
+
+def _latest_tool_relative_path(latest_tool: Optional[Dict[str, Any]]) -> str:
+    if not latest_tool:
+        return ""
+    request = latest_tool.get("request") or {}
+    data = latest_tool.get("data") or {}
+    return str(request.get("relative_path") or data.get("relative_path") or "")

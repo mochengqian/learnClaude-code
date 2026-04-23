@@ -533,6 +533,12 @@ python3 scripts/run_demo_smoke.py
 
 M3.2 patch-contract hardening 把 no-op `file_patch` 前移到 agent 输出 contract 校验，并给一次受限 repair，避免没有 diff 的编辑请求进入 approval/execute 后才失败。
 
+M3.3 eval case 小扩容不是功能开发，只新增 3 个更贴近真实 repo 局部任务的内置 eval case：
+
+- `implementation_only_change`：要求只改实现，不改测试。
+- `failing_test_points_to_source`：先读失败测试，再读 source，最终只改 source。
+- `multi_file_context_single_edit`：允许读 2 个文件，但只编辑 1 个目标文件。
+
 M3 继续明确不做：
 
 - 不做持久化 / 数据库

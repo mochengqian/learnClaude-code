@@ -48,6 +48,49 @@ def builtin_eval_cases() -> List[EvalCase]:
             test_command=("python3", "-m", "unittest", "discover", "-s", "tests", "-v"),
             notes="Read demo_app/text_tools.py, patch the whitespace splitting logic, and verify tests.",
         ),
+        EvalCase(
+            case_id="implementation_only_change",
+            display_name="Implementation Only Change",
+            template_dir_name="implementation_only_change",
+            task_input=(
+                "Fix format_status_label so multi-word statuses use hyphens, "
+                "do not modify tests, then run the local tests."
+            ),
+            test_command=("python3", "-m", "unittest", "discover", "-s", "tests", "-v"),
+            notes=(
+                "Read demo_app/status_tools.py, patch only the implementation, "
+                "and verify tests without editing tests."
+            ),
+        ),
+        EvalCase(
+            case_id="failing_test_points_to_source",
+            display_name="Failing Test Points To Source",
+            template_dir_name="failing_test_points_to_source",
+            task_input=(
+                "Use the failing discount test as the clue, fix apply_discount_cents "
+                "in the source implementation, then run the local tests."
+            ),
+            test_command=("python3", "-m", "unittest", "discover", "-s", "tests", "-v"),
+            notes=(
+                "Read tests/test_discounts.py first, then demo_app/discounts.py, "
+                "patch only the source implementation, and verify tests."
+            ),
+        ),
+        EvalCase(
+            case_id="multi_file_context_single_edit",
+            display_name="Multi File Context Single Edit",
+            template_dir_name="multi_file_context_single_edit",
+            task_input=(
+                "Render messages with the shared DEFAULT_SUFFIX. You may read both "
+                "format_rules.py and message_tools.py, but edit only message_tools.py, "
+                "then run the local tests."
+            ),
+            test_command=("python3", "-m", "unittest", "discover", "-s", "tests", "-v"),
+            notes=(
+                "Read demo_app/format_rules.py and demo_app/message_tools.py, "
+                "patch only demo_app/message_tools.py, and verify tests."
+            ),
+        ),
     ]
 
 
