@@ -146,3 +146,38 @@ Case outcomes:
 - `slug_join`: `FAIL`, stop=`approval_required`, failure=`approval_required`
 - `clamp_lower_bound`: `FAIL`, stop=`runner_failed`, failure=`edit_without_read`
 - `compact_whitespace`: `FAIL`, stop=`approval_required`, failure=`approval_required`
+
+## Edit Target Binding Checkpoint (2026-04-23)
+
+- Commit: `16f2611`
+- Model: `RightCode / gpt-5.4-mini`
+- Eval command source:
+  - `artifacts/eval/rightcode-gpt-5.4-mini-auto_approve_edits.json`
+  - `artifacts/eval/rightcode-gpt-5.4-mini-stop_on_request.json`
+- Notes: `Edit-target binding hardening restored auto_approve_edits to 3/3 while keeping duplicate rereads at 0.0. Failure taxonomy now splits off_target_edit and bad_patch_target instead of collapsing these regressions into tool_failed.`
+
+### auto_approve_edits
+
+- Passed: `3/3`
+- Average steps: `5.33`
+- Average duplicate reads: `0.0`
+- Cases with same-file rereads: `0`
+- Failure reasons: `{}`
+
+Case outcomes:
+- `slug_join`: `PASS`, stop=`finished`, failure=`-`
+- `clamp_lower_bound`: `PASS`, stop=`finished`, failure=`-`
+- `compact_whitespace`: `PASS`, stop=`finished`, failure=`-`
+
+### stop_on_request
+
+- Passed: `0/3`
+- Average steps: `2.33`
+- Average duplicate reads: `0.0`
+- Cases with same-file rereads: `0`
+- Failure reasons: `{"approval_required": 3}`
+
+Case outcomes:
+- `slug_join`: `FAIL`, stop=`approval_required`, failure=`approval_required`
+- `clamp_lower_bound`: `FAIL`, stop=`approval_required`, failure=`approval_required`
+- `compact_whitespace`: `FAIL`, stop=`approval_required`, failure=`approval_required`
