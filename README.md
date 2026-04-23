@@ -539,6 +539,27 @@ M3.3 eval case 小扩容不是功能开发，只新增 3 个更贴近真实 repo
 - `failing_test_points_to_source`：先读失败测试，再读 source，最终只改 source。
 - `multi_file_context_single_edit`：允许读 2 个文件，但只编辑 1 个目标文件。
 
+M3.4 plan output hardening 只补 plan 阶段控制面韧性：
+
+- `draft_plan` 对非法 JSON / 非法 todo 输出给一次受限 repair。
+- timeline 显式记录 `agent_plan_output_invalid`、`agent_plan_output_retry_requested`、`agent_plan_output_repaired`。
+- eval taxonomy 把 plan 阶段失败拆成 `plan_invalid_output`，不再混进通用 `invalid_model_output`。
+- RightCode / `gpt-5.4-mini` 扩展基线恢复到 `auto_approve_edits = 6/6`，`avg_duplicate_reads = 0.0`。
+
+M3 closeout 口径：
+
+- 当前远端 checkpoint：`431d58c`。
+- 当前实现锚点：`fd93ea9`。
+- 可演示闭环：demo repo -> session/task input -> plan draft/approve -> limited agent loop -> approval -> diff -> successful local test -> timeline。
+- 基线治理：raw JSON 继续只落本地 `artifacts/eval/*.json`，提交态只更新 [artifacts/eval/BASELINE.md](/Users/luan/claude-code-main/learnClaude-code/artifacts/eval/BASELINE.md:1)。
+
+M3 closeout 验证命令：
+
+```bash
+python3 scripts/run_demo_smoke.py
+python3 -m unittest discover -s tests -v
+```
+
 M3 继续明确不做：
 
 - 不做持久化 / 数据库
@@ -547,6 +568,31 @@ M3 继续明确不做：
 - 不新增工具类型
 - 不把 shell 扩成通用命令平台
 - 不做更复杂前端或产品化面板
+
+## M4 Real Repo Pilot
+
+M4 的目标不是继续加功能，而是把当前 runtime 放到真实 repo 局部任务里验证。先设计 2 到 3 个小任务 dry run，记录失败 taxonomy 和 timeline 证据，再决定是否需要补控制面 hardening。
+
+建议 pilot 任务粒度：
+
+- 单文件实现修复：读 1 到 2 个文件，编辑 1 个 source 文件，必须跑本地测试。
+- 失败测试定位：先读失败测试，再读目标 source，最终只改 source。
+- 小范围多文件上下文：允许读 2 到 3 个相关文件，但只编辑 1 个明确目标文件。
+
+M4 进入条件：
+
+- M3 closeout 文档和演示口径已提交。
+- `python3 scripts/run_demo_smoke.py` 通过。
+- `python3 -m unittest discover -s tests -v` 通过。
+- `artifacts/eval/BASELINE.md` 已记录 M3.4 基线摘要。
+
+M4 明确不做：
+
+- 不新增工具类型。
+- 不做目录浏览 / 通用检索 / RAG。
+- 不做持久化 / 数据库 / worktree。
+- 不做多 agent / 子代理 / MCP / plugin / 记忆系统。
+- 不为了 pilot 分数去绕过 approval、diff、test、timeline 这条核心闭环。
 
 ## 测试
 
