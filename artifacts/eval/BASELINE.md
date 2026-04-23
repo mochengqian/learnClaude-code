@@ -251,3 +251,38 @@ Case outcomes:
 - `slug_join`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
 - `clamp_lower_bound`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
 - `compact_whitespace`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+
+## M3 Start Baseline Refresh (2026-04-23)
+
+- Commit: `72dc057`
+- Model: `RightCode / gpt-5.4-mini`
+- Eval command source:
+  - `artifacts/eval/rightcode-gpt-5.4-mini-m3-start-auto_approve_edits.json`
+  - `artifacts/eval/rightcode-gpt-5.4-mini-m3-start-stop_on_request.json`
+- Notes: `M3 starts with a live regression signal: read-focus remains stable at 0.0 duplicate reads, while auto_approve_edits regressed on edit-target and output-contract failures that should drive the next control-plane hardening slice.`
+
+### auto_approve_edits
+
+- Passed: `1/3`
+- Average steps: `2.67`
+- Average duplicate reads: `0.0`
+- Cases with same-file rereads: `0`
+- Failure reasons: `{"off_target_edit": 1, "invalid_model_output": 1}`
+
+Case outcomes:
+- `slug_join`: `FAIL`, stop=`tool_failed`, failure=`off_target_edit`
+- `clamp_lower_bound`: `FAIL`, stop=`runner_failed`, failure=`invalid_model_output`
+- `compact_whitespace`: `PASS`, stop=`finished`, failure=`-`
+
+### stop_on_request
+
+- Passed: `0/3`
+- Average steps: `3.67`
+- Average duplicate reads: `0.0`
+- Cases with same-file rereads: `0`
+- Failure reasons: `{"edit_approval_required": 3}`
+
+Case outcomes:
+- `slug_join`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `clamp_lower_bound`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `compact_whitespace`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`

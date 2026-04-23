@@ -512,7 +512,7 @@ class EvalPackTest(unittest.TestCase):
         self.assertEqual("runner_failed", report.stop_reason)
         self.assertEqual("off_target_edit", report.failure_reason)
 
-    def test_eval_runner_classifies_bad_patch_target_failures(self):
+    def test_eval_runner_classifies_no_op_patch_failures(self):
         runner = EvalRunner(
             agent_runner=AgentRunner(BadPatchTargetEvalModelClient()),
             approval_mode=APPROVAL_MODE_AUTO_APPROVE_EDITS,
@@ -521,8 +521,8 @@ class EvalPackTest(unittest.TestCase):
         report = runner.run_case(get_builtin_eval_case("slug_join"))
 
         self.assertFalse(report.success)
-        self.assertEqual("tool_failed", report.stop_reason)
-        self.assertEqual("bad_patch_target", report.failure_reason)
+        self.assertEqual("runner_failed", report.stop_reason)
+        self.assertEqual("no_op_patch", report.failure_reason)
 
 
 def _slug_join_response(user_prompt: str) -> ModelResponse:

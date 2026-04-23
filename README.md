@@ -519,6 +519,29 @@ python3 -m unittest tests.test_web_console -v
 python3 -m unittest discover -s tests -v
 ```
 
+## M3 Real Repo Robustness
+
+M3 的目标不是新增产品功能，而是把真实 repo 局部任务的稳定性继续压实。当前只接受控制面和验证面的增强。
+
+M3.0 baseline refresh 使用 RightCode / `gpt-5.4-mini` 在当前远端锚点重新跑两档 approval mode；raw JSON 继续只保留在本地 `artifacts/eval/*.json`，提交态只更新 [artifacts/eval/BASELINE.md](/Users/luan/claude-code-main/learnClaude-code/artifacts/eval/BASELINE.md:1)。
+
+M3.1 demo smoke 提供一条本地命令，证明 demo repo、API session flow、agent plan/loop、approval、diff、successful test 和 timeline 能端到端跑通：
+
+```bash
+python3 scripts/run_demo_smoke.py
+```
+
+M3.2 patch-contract hardening 把 no-op `file_patch` 前移到 agent 输出 contract 校验，并给一次受限 repair，避免没有 diff 的编辑请求进入 approval/execute 后才失败。
+
+M3 继续明确不做：
+
+- 不做持久化 / 数据库
+- 不做 worktree / 子代理
+- 不做 MCP / plugin / 记忆系统
+- 不新增工具类型
+- 不把 shell 扩成通用命令平台
+- 不做更复杂前端或产品化面板
+
 ## 测试
 
 除了原有 runtime / API 测试，这一轮新增：
@@ -526,3 +549,4 @@ python3 -m unittest discover -s tests -v
 - `tests/test_agent.py`：验证模型 plan 生成和 agent step 仍受审批流约束
 - `tests/test_web_console.py`：验证控制台首页和静态资源可访问
 - `tests/test_demo_flow.py`：验证 demo repo 的完整 bugfix 流程
+- `tests/test_demo_smoke_script.py`：验证 M3 demo smoke 一条命令能跑通闭环

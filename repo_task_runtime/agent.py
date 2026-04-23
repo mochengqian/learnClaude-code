@@ -238,6 +238,7 @@ class AgentRunner:
         remaining_edit_target_second_chances = 1
         remaining_missing_relative_path_second_chances = 1
         remaining_missing_repo_file_second_chances = 1
+        remaining_patch_contract_second_chances = 1
 
         for attempt in range(self.max_output_retries + 2):
             response = self.model_client.complete(
@@ -282,6 +283,11 @@ class AgentRunner:
                     and remaining_missing_relative_path_second_chances > 0
                     and self._is_missing_relative_path_error(str(exc))
                 )
+                patch_contract_second_chance = (
+                    not standard_retry_available
+                    and remaining_patch_contract_second_chances > 0
+                    and self._is_patch_contract_error(str(exc))
+                )
                 if (
                     not standard_retry_available
                     and not approval_path_second_chance
@@ -289,6 +295,7 @@ class AgentRunner:
                     and not edit_target_second_chance
                     and not missing_relative_path_second_chance
                     and not missing_repo_file_second_chance
+                    and not patch_contract_second_chance
                 ):
                     raise
                 if approval_path_second_chance:
@@ -327,6 +334,14 @@ class AgentRunner:
                     remaining_missing_repo_file_second_chances -= 1
                     session.record_event(
                         "agent_step_output_missing_repo_file_second_chance_requested",
+                        model=response.model,
+                        attempt=attempt + 1,
+                        error=str(exc),
+                    )
+                if patch_contract_second_chance:
+                    remaining_patch_contract_second_chances -= 1
+                    session.record_event(
+                        "agent_step_output_patch_contract_second_chance_requested",
                         model=response.model,
                         attempt=attempt + 1,
                         error=str(exc),
@@ -392,6 +407,10 @@ class AgentRunner:
                 "missing_repo_file_repair": self._build_missing_repo_file_repair(
                     validation_error
                 ),
+                "patch_contract_repair": self._build_patch_contract_repair(
+                    session=session,
+                    validation_error=validation_error,
+                ),
             },
         }
 
@@ -428,6 +447,11 @@ class AgentRunner:
             )
             if approval_focus_error:
                 raise ModelClientError(approval_focus_error)
+            completion_contract_error = (
+                session.validate_tool_request_completion_contract(tool_request)
+            )
+            if completion_contract_error:
+                raise ModelClientError(completion_contract_error)
 
     def _tool_request_from_payload(self, payload: Dict[str, Any]):
         tool_payload = payload.get("tool_request")
@@ -472,6 +496,46 @@ class AgentRunner:
 
     def _is_missing_repo_file_error(self, validation_error: str) -> bool:
         return "missing repo file for" in validation_error.lower()
+
+    def _is_patch_contract_error(self, validation_error: str) -> bool:
+        lowered = validation_error.lower()
+        return (
+            "no-op file_patch" in lowered
+            or "expected_old_snippet cannot be empty" in lowered
+            or "expected_old_snippet is required for file_patch" in lowered
+            or "new_snippet is required for file_patch" in lowered
+        )
+
+    def _build_patch_contract_repair(
+        self, *, session: TaskSession, validation_error: str
+    ) -> Optional[Dict[str, Any]]:
+        if not self._is_patch_contract_error(validation_error):
+            return None
+
+        read_focus = session.build_read_focus_snapshot()
+        primary_target_path = read_focus.get("primary_target_path")
+        instruction = (
+            "The previous file_patch broke the patch contract. Return corrected "
+            "JSON only using the same schema. expected_old_snippet must be a "
+            "non-empty exact snippet from the target file, new_snippet must differ "
+            "from expected_old_snippet, and the edit must produce a repo diff."
+        )
+        if primary_target_path:
+            instruction += (
+                " Prefer patching the current primary target {0}. If you cannot "
+                "produce a real patch for that file, choose run_test or read_file "
+                "instead of returning another no-op file_patch."
+            ).format(primary_target_path)
+        else:
+            instruction += (
+                " If you do not have enough file context for a real patch, read the "
+                "target file before editing."
+            )
+
+        return {
+            "primary_target_path": primary_target_path,
+            "instruction": instruction,
+        }
 
     def _build_directory_path_repair(
         self, validation_error: str

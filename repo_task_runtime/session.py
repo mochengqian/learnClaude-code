@@ -371,6 +371,17 @@ class TaskSession:
             "Use read_file for that file instead of shell."
         ).format(relative_path)
 
+    def validate_tool_request_completion_contract(
+        self, request: ToolInvocationRequest
+    ) -> Optional[str]:
+        if isinstance(request, FilePatchRequest):
+            if request.expected_old_snippet == request.new_snippet:
+                return (
+                    "Model returned a no-op file_patch for {0}: new_snippet must "
+                    "differ from expected_old_snippet so the edit produces a diff."
+                ).format(request.relative_path)
+        return None
+
     def build_read_focus_snapshot(self) -> Dict[str, object]:
         recent_context_paths = [
             item.relative_path for item in self.recent_file_contexts

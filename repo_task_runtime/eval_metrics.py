@@ -157,6 +157,8 @@ def classify_runner_failure(last_failure_message: str) -> str:
         return "directory_path"
     if "missing repo file for" in message:
         return "missing_repo_file"
+    if "no-op file_patch" in message:
+        return "no_op_patch"
     if "invalid finish action" in message:
         return "invalid_finish"
     if (
@@ -174,10 +176,8 @@ def _classify_tool_failure(last_failure_message: str) -> str:
     message = last_failure_message.strip().lower()
     if "expected_old_snippet" in message:
         return "bad_patch"
-    if "file_patch produced no changes for readme.md" in message:
-        return "off_target_edit"
     if "file_patch produced no changes for " in message:
-        return "bad_patch_target"
+        return "no_op_patch"
     return "tool_failed"
 
 
