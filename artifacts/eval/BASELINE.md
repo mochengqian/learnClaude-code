@@ -403,3 +403,44 @@ Case outcomes:
 - `implementation_only_change`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
 - `failing_test_points_to_source`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
 - `multi_file_context_single_edit`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+
+## M4 Provider Stability Checkpoint (2026-04-23)
+
+- Commit: `fa64829`
+- Model: `RightCode / gpt-5.4-mini`
+- Eval command source:
+  - `artifacts/eval/rightcode-gpt-5.4-mini-m4-provider-stability-auto_approve_edits.json`
+  - `artifacts/eval/rightcode-gpt-5.4-mini-m4-provider-stability-stop_on_request.json`
+- Notes: `Provider/transport hardening stayed invisible to the control plane under real-model validation. auto_approve_edits remained 6/6, and stop_on_request halted cleanly at edit approval with duplicate reads still pinned at 0.0.`
+
+### auto_approve_edits
+
+- Passed: `6/6`
+- Average steps: `5.5`
+- Average duplicate reads: `0.0`
+- Cases with same-file rereads: `0`
+- Failure reasons: `{}`
+
+Case outcomes:
+- `slug_join`: `PASS`, stop=`finished`, failure=`-`
+- `clamp_lower_bound`: `PASS`, stop=`finished`, failure=`-`
+- `compact_whitespace`: `PASS`, stop=`finished`, failure=`-`
+- `implementation_only_change`: `PASS`, stop=`finished`, failure=`-`
+- `failing_test_points_to_source`: `PASS`, stop=`finished`, failure=`-`
+- `multi_file_context_single_edit`: `PASS`, stop=`finished`, failure=`-`
+
+### stop_on_request
+
+- Passed: `0/6`
+- Average steps: `3.17`
+- Average duplicate reads: `0.0`
+- Cases with same-file rereads: `0`
+- Failure reasons: `{"edit_approval_required": 6}`
+
+Case outcomes:
+- `slug_join`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `clamp_lower_bound`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `compact_whitespace`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `implementation_only_change`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `failing_test_points_to_source`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `multi_file_context_single_edit`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
