@@ -641,6 +641,15 @@ M5.0 固定输出摘要：
 - 平均 duplicate reads
 - failure taxonomy
 
+M5.1 Patch Contract Hardening closeout：
+
+- 当前远端锚点：`8c94c0a`。
+- 控制面实现锚点：`f4e9be2`。
+- 真实模型：RightCode / `gpt-5.4-mini`。
+- `auto_approve_edits`：`3/3`，`bad_patch_snippet: {}`，平均 duplicate reads `0.0`。
+- `stop_on_request`：`0/3`，均停在 `edit_approval_required`，平均 duplicate reads `0.0`。
+- 结论：M5.1 只把 ambiguous `expected_old_snippet` 的 patch contract repair 收紧到控制面，未新增工具、目录浏览、RAG、UI 面板或平台能力。
+
 M5 继续明确不做：
 
 - 不做 benchmark 平台或统计面板。
