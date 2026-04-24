@@ -685,6 +685,17 @@ M6.0 暂定 case 选择方向：
 - 失败测试定位型：先读失败测试，再读 source，验证 test-to-source 的上下文链路。
 - 小范围上下文型：允许读 2 到 3 个相关文件，但只允许编辑 1 个目标文件，继续压 off-target patch。
 
+M6.1 Real Repo Pilot Expansion closeout：
+
+- 当前远端锚点：`c5d13c5`。
+- 当前内置真实 repo pilot case：`6` 个。
+- 扩展 case 覆盖：completion contract 的 source-only edit、multi-file context single edit、approval path test-first。
+- 真实模型：RightCode / `gpt-5.4-mini`。
+- `auto_approve_edits`：`6/6`，平均步数 `4.67`，平均 read_file `1.5`，平均 duplicate reads `0.0`，failure taxonomy `{}`。
+- `stop_on_request`：`0/6`，全部预期停在 `edit_approval_required`，用于验证 approval 停机路径而不是追求通过率。
+- 一次性 duplicate read 噪音：`approval_path_test_first` 在 focused rerun 中已回到 `0.0`，不构成稳定退化信号。
+- 结论：M6.1 扩容没有触发新的稳定控制面失败，因此不进入 M6.2 hardening；继续保持不新增工具、不做目录浏览、不扩产品面。
+
 M6 明确不做：
 
 - 不新增目录浏览、搜索工具、通用检索或 RAG。
