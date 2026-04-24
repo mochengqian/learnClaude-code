@@ -593,6 +593,7 @@ class AgentRunner:
             "no-op file_patch" in lowered
             or "bad patch snippet for file_patch" in lowered
             or "expected_old_snippet was not found in" in lowered
+            or "expected_old_snippet matched multiple locations in" in lowered
             or "expected_old_snippet cannot be empty" in lowered
             or "expected_old_snippet is required for file_patch" in lowered
             or "new_snippet is required for file_patch" in lowered
@@ -631,10 +632,10 @@ class AgentRunner:
             recent_read_anchor = self._build_patch_contract_recent_read_anchor(
                 session=session,
                 relative_path=patch_target_path,
-                query=(
-                    attempted_expected_old_snippet
-                    or session.task_input
-                    or patch_target_path
+                query=self._build_patch_contract_anchor_query(
+                    task_input=session.task_input,
+                    attempted_expected_old_snippet=attempted_expected_old_snippet,
+                    patch_target_path=patch_target_path,
                 ),
             )
         instruction = (
@@ -647,6 +648,12 @@ class AgentRunner:
             instruction += (
                 " The previous expected_old_snippet does not exist in the current "
                 "repo file. Do not invent or approximate the snippet."
+            )
+        if "expected_old_snippet matched multiple locations in" in validation_error.lower():
+            instruction += (
+                " The previous expected_old_snippet was too short or ambiguous and "
+                "matched multiple places. Use a longer exact snippet that uniquely "
+                "identifies the intended line or local block."
             )
         if patch_target_path:
             instruction += " Keep the patch target on {0}.".format(patch_target_path)
@@ -998,7 +1005,7 @@ class AgentRunner:
         self, validation_error: str
     ) -> Optional[str]:
         match = re.search(
-            r"expected_old_snippet was not found in ([^\s]+)\.",
+            r"expected_old_snippet (?:was not found|matched multiple locations) in ([^\s]+)\.",
             validation_error,
             flags=re.IGNORECASE,
         )
@@ -1027,6 +1034,20 @@ class AgentRunner:
                 continue
             request[field_name] = str(raw_value)
         return request or None
+
+    def _build_patch_contract_anchor_query(
+        self,
+        *,
+        task_input: Optional[str],
+        attempted_expected_old_snippet: Optional[str],
+        patch_target_path: str,
+    ) -> str:
+        query_parts = [
+            str(task_input or "").strip(),
+            str(attempted_expected_old_snippet or "").strip(),
+            str(patch_target_path or "").strip(),
+        ]
+        return "\n".join(part for part in query_parts if part)
 
     def _build_patch_contract_recent_read_anchor(
         self, *, session: TaskSession, relative_path: str, query: str
@@ -1095,7 +1116,20 @@ class AgentRunner:
             "anchor_line_number": anchor_line_index + 1,
             "anchor_line": lines[anchor_line_index],
             "excerpt": excerpt,
+            "line_numbered_excerpt": self._line_numbered_excerpt(
+                lines=lines,
+                start_index=excerpt_start,
+                end_index=excerpt_end,
+            ),
         }
+
+    def _line_numbered_excerpt(
+        self, *, lines: List[str], start_index: int, end_index: int
+    ) -> str:
+        return "\n".join(
+            "{0}: {1}".format(index + 1, lines[index])
+            for index in range(start_index, end_index)
+        )
 
     def _best_patch_anchor_span(
         self, lines: List[str], query: str

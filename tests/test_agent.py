@@ -113,6 +113,54 @@ class ReadmePatchRepairAnchorModelClient:
         )
 
 
+class AmbiguousReadmePatchRepairModelClient:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def complete(self, *, system_prompt: str, user_prompt: str) -> ModelResponse:
+        self.calls += 1
+        if self.calls == 1:
+            return ModelResponse(
+                text=(
+                    '{"summary":"Patch the stale provider checkpoint sha.",'
+                    '"action":"request_tool",'
+                    '"tool_request":{'
+                    '"tool_type":"file_patch",'
+                    '"relative_path":"README.md",'
+                    '"expected_old_snippet":"`fa64829`",'
+                    '"new_snippet":"`effc35b`"'
+                    "}}"
+                ),
+                model="gpt-5.4-mini-test",
+                usage={"total_tokens": 123},
+            )
+
+        payload = json.loads(user_prompt)
+        repair = payload["repair_request"]["patch_contract_repair"]
+        anchor = repair["recent_read_anchor"]
+        if "matched multiple places" not in repair["instruction"]:
+            raise AssertionError("Patch repair did not explain the ambiguous snippet.")
+        if anchor["anchor_line"] != "- Current remote checkpoint: `fa64829`.":
+            raise AssertionError("Patch repair did not choose the task-relevant line.")
+        if "Current implementation anchor" not in anchor["line_numbered_excerpt"]:
+            raise AssertionError("Patch repair did not include nearby line anchors.")
+
+        return ModelResponse(
+            text=(
+                '{"summary":"Patch only the current remote checkpoint line.",'
+                '"action":"request_tool",'
+                '"tool_request":{'
+                '"tool_type":"file_patch",'
+                '"relative_path":"README.md",'
+                '"expected_old_snippet":"- Current remote checkpoint: `fa64829`.",'
+                '"new_snippet":"- Current remote checkpoint: `effc35b`."'
+                "}}"
+            ),
+            model="gpt-5.4-mini-test",
+            usage={"total_tokens": 123},
+        )
+
+
 class AgentRunnerTest(unittest.TestCase):
     def make_session(self):
         temp_dir = tempfile.TemporaryDirectory()
@@ -1124,6 +1172,48 @@ class AgentRunnerTest(unittest.TestCase):
 
         runner = AgentRunner(
             ReadmePatchRepairAnchorModelClient(),
+            max_output_retries=0,
+        )
+
+        outcome = runner.run_next_step(session)
+
+        self.assertEqual("request_tool", outcome.decision.action)
+        self.assertEqual("approval_required", outcome.tool_result.status)
+        self.assertEqual("file_patch", outcome.tool_result.tool_name)
+        self.assertEqual(1, len(session.pending_approvals))
+        event_types = [event.event_type for event in session.timeline]
+        self.assertIn(
+            "agent_step_output_patch_contract_second_chance_requested",
+            event_types,
+        )
+        self.assertIn("agent_step_output_repaired", event_types)
+
+    def test_run_next_step_repairs_ambiguous_doc_patch_with_task_anchor(self):
+        temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        repo_path = Path(temp_dir.name)
+        init_git_repo(repo_path)
+        (repo_path / "README.md").write_text(
+            "# Runtime\n"
+            "\n"
+            "## M4 provider-stability closeout\n"
+            "- Current remote checkpoint: `fa64829`.\n"
+            "- Current implementation anchor: `fa64829`.\n",
+            encoding="utf-8",
+        )
+        session = TaskWorkbench().create_session(repo_path)
+        session.begin_task(
+            "Update README.md only: in the M4 provider-stability closeout section, "
+            "change the current remote checkpoint from fa64829 to effc35b."
+        )
+        session.update_plan("1. Inspect\n2. Fix\n3. Test")
+        session.approve_plan()
+        self.seed_todos(session)
+        read_result = session.request_tool(FileReadRequest(relative_path="README.md"))
+        self.assertEqual("executed", read_result.status)
+
+        runner = AgentRunner(
+            AmbiguousReadmePatchRepairModelClient(),
             max_output_retries=0,
         )
 

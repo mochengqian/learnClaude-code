@@ -1083,8 +1083,18 @@ class TaskSession:
             return None
 
         old_content = resolved_path.read_text(encoding="utf-8")
-        if request.expected_old_snippet in old_content:
+        occurrences = old_content.count(request.expected_old_snippet)
+        if occurrences == 1:
             return None
+        if occurrences > 1 and request.replace_all:
+            return None
+        if occurrences > 1:
+            return (
+                "Model returned a bad patch snippet for file_patch: "
+                "expected_old_snippet matched multiple locations in {0}. Use a "
+                "longer exact snippet from that repo file so the edit target is "
+                "unique, or set replace_all=true only when every match should change."
+            ).format(request.relative_path)
 
         return (
             "Model returned a bad patch snippet for file_patch: "
