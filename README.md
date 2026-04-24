@@ -650,6 +650,15 @@ M5.1 Patch Contract Hardening closeout：
 - `stop_on_request`：`0/3`，均停在 `edit_approval_required`，平均 duplicate reads `0.0`。
 - 结论：M5.1 只把 ambiguous `expected_old_snippet` 的 patch contract repair 收紧到控制面，未新增工具、目录浏览、RAG、UI 面板或平台能力。
 
+M5.2 Real Repo Observe closeout：
+
+- 当前远端锚点：`2e37b3d`。
+- 真实模型：RightCode / `gpt-5.4-mini`。
+- Observe 轮次：连续两轮 `auto_approve_edits` + 连续两轮 `stop_on_request`。
+- `auto_approve_edits`：两轮均 `3/3`，平均步数 `4.67`，平均 read_file `1.33`，平均 duplicate reads `0.0`，failure taxonomy `{}`，`bad_patch_snippet: {}`。
+- `stop_on_request`：两轮均 `0/3`，全部稳定停在 `edit_approval_required`，平均步数 `2.67`，平均 read_file `1.33`，平均 duplicate reads `0.0`。
+- 结论：M5.2 没有复现 provider/transport 抖动、same-file reread、bad_patch_snippet 或 approval taxonomy 退化，因此不新增 runtime hardening；继续把改动边界收在证据链和演示口径。
+
 M5 继续明确不做：
 
 - 不做 benchmark 平台或统计面板。
@@ -657,6 +666,32 @@ M5 继续明确不做：
 - 不做目录浏览 / 通用检索 / RAG。
 - 不做持久化 / 数据库 / worktree。
 - 不做多 agent / 子代理 / MCP / plugin / 记忆系统。
+
+## M6 Real Repo Pilot Expansion Design
+
+M6 的目标不是把 case 数量做大，而是把真实 repo pilot 的准入标准做硬。底层逻辑是用少量高质量局部任务持续暴露控制面缺口，仍然服务 `read -> patch -> test -> timeline` 这条核心闭环。
+
+M6.0 pilot case 准入标准：
+
+- 必须是真实 repo 局部任务，不使用 demo 模板伪造复杂度。
+- 必须有明确目标文件和预期编辑边界，避免把问题退化成目录浏览或检索。
+- 必须经过 `read_file -> file_patch/write_file -> run_test -> timeline`，不能绕过 diff、approval 或测试闭环。
+- 必须能暴露一个可解释的控制面风险，例如 patch contract、completion contract、approval path、read focus 或 failure taxonomy。
+- 必须能用固定摘要复盘：通过率、平均步数、duplicate reads、failure taxonomy。
+
+M6.0 暂定 case 选择方向：
+
+- 实现修复型：目标 source 文件明确，测试已有或可直接运行，验证 source-only edit 不漂移。
+- 失败测试定位型：先读失败测试，再读 source，验证 test-to-source 的上下文链路。
+- 小范围上下文型：允许读 2 到 3 个相关文件，但只允许编辑 1 个目标文件，继续压 off-target patch。
+
+M6 明确不做：
+
+- 不新增目录浏览、搜索工具、通用检索或 RAG。
+- 不接 MCP / plugin / memory。
+- 不做多 agent、子代理编排或 worktree 管理。
+- 不做复杂 UI、统计面板或 benchmark 平台。
+- 不为了 case 数量牺牲任务颗粒度和可解释性。
 
 ## 测试
 
