@@ -548,7 +548,7 @@ M3.4 plan output hardening 只补 plan 阶段控制面韧性：
 
 M3 closeout 口径：
 
-- 当前远端 checkpoint：`431d58c`。
+- 当前远端 checkpoint：`3e138e7`。
 - 当前实现锚点：`fd93ea9`。
 - 可演示闭环：demo repo -> session/task input -> plan draft/approve -> limited agent loop -> approval -> diff -> successful local test -> timeline。
 - 基线治理：raw JSON 继续只落本地 `artifacts/eval/*.json`，提交态只更新 [artifacts/eval/BASELINE.md](/Users/luan/claude-code-main/learnClaude-code/artifacts/eval/BASELINE.md:1)。
@@ -594,6 +594,61 @@ M4 明确不做：
 - 不做多 agent / 子代理 / MCP / plugin / 记忆系统。
 - 不为了 pilot 分数去绕过 approval、diff、test、timeline 这条核心闭环。
 
+M4 provider-stability closeout：
+
+- 当前远端 checkpoint：`effc35b`。
+- 当前实现锚点：`fa64829`。
+- RightCode / `gpt-5.4-mini` 基线保持 `auto_approve_edits = 6/6`、`avg_duplicate_reads = 0.0`。
+- `stop_on_request` 继续 `0/6 finished`，但 `6/6` 都干净停在 `edit_approval_required`，没有回退成粗粒度 approval failure。
+- provider/transport hardening 没有把失败重新放大到控制面：checkpoint smoke 没出现 `model_transport_failed` 或 `model_provider_response_invalid` 回退。
+
+M4 closeout 验证命令：
+
+```bash
+python3 scripts/run_demo_smoke.py
+python3 -m unittest discover -s tests -v
+```
+
+M4 继续明确不做：
+
+- 不新增工具类型。
+- 不做目录浏览 / 通用检索 / RAG。
+- 不做持久化 / 数据库 / worktree。
+- 不做多 agent / 子代理 / MCP / plugin / 记忆系统。
+- 不做更复杂前端或产品化面板。
+- 不把 eval pack 长成 benchmark 平台。
+
+## M5 Real Repo Repro Pack
+
+M5 的目标不是新增 runtime 能力，而是把已经验证过的真实 repo pilot 收成一条可复现、本地可讲述的 smoke 入口。底层逻辑是用当前仓库的临时副本承载真实 repo 局部任务，而不是回退到 demo 模板或继续平台化。
+
+本地复现命令：
+
+```bash
+python3 scripts/run_real_repo_pilot.py
+```
+
+M5.0 当前内置的 real repo pilot case：
+
+- `readme_provider_checkpoint_refresh`：README-only 的 checkpoint 刷新任务，验证文档编辑 + full test 闭环。
+- `provider_content_comment_single_file`：单文件 source 注释任务，只改 `repo_task_runtime/model_client.py`，验证 source-only edit 不漂移。
+- `failing_test_points_to_source_real`：先看失败测试，再修 `repo_task_runtime/eval_metrics.py`，验证真实 repo 的 test-to-source 修复路径。
+
+M5.0 固定输出摘要：
+
+- 通过率
+- 平均步数
+- 平均 duplicate reads
+- failure taxonomy
+
+M5 继续明确不做：
+
+- 不做 benchmark 平台或统计面板。
+- 不新增工具类型。
+- 不做目录浏览 / 通用检索 / RAG。
+- 不做持久化 / 数据库 / worktree。
+- 不做多 agent / 子代理 / MCP / plugin / 记忆系统。
+
 ## 测试
 
 除了原有 runtime / API 测试，这一轮新增：
@@ -602,3 +657,4 @@ M4 明确不做：
 - `tests/test_web_console.py`：验证控制台首页和静态资源可访问
 - `tests/test_demo_flow.py`：验证 demo repo 的完整 bugfix 流程
 - `tests/test_demo_smoke_script.py`：验证 M3 demo smoke 一条命令能跑通闭环
+- `tests/test_real_repo_pilot_script.py`：验证 M5 real repo repro 入口能输出稳定摘要
