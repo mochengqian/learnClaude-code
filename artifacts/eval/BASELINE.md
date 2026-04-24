@@ -444,3 +444,40 @@ Case outcomes:
 - `implementation_only_change`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
 - `failing_test_points_to_source`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
 - `multi_file_context_single_edit`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+
+## M5 Real Repo Repro Pack Checkpoint (2026-04-24)
+
+- Commit: `7756a30`
+- Model: `RightCode / gpt-5.4-mini`
+- Eval command source:
+  - `python3 scripts/run_real_repo_pilot.py`
+  - `python3 scripts/run_real_repo_pilot.py --approval-mode stop_on_request`
+- Notes: `M5.0 added a reproducible real-repo pilot smoke without changing runtime behavior. The fresh real-model run exposed one bad_patch_snippet miss in the README checkpoint case; this is M5.1 evidence, not a reason to expand product scope. Duplicate reads stayed pinned at 0.0 in both modes.`
+
+### auto_approve_edits
+
+- Passed: `2/3`
+- Average steps: `4.0`
+- Average read_file calls: `1.33`
+- Average duplicate reads: `0.0`
+- Cases with same-file rereads: `0`
+- Failure reasons: `{"bad_patch_snippet": 1}`
+
+Case outcomes:
+- `readme_provider_checkpoint_refresh`: `FAIL`, stop=`tool_failed`, failure=`bad_patch_snippet`
+- `provider_content_comment_single_file`: `PASS`, stop=`finished`, failure=`-`
+- `failing_test_points_to_source_real`: `PASS`, stop=`finished`, failure=`-`
+
+### stop_on_request
+
+- Passed: `0/3`
+- Average steps: `2.67`
+- Average read_file calls: `1.33`
+- Average duplicate reads: `0.0`
+- Cases with same-file rereads: `0`
+- Failure reasons: `{"edit_approval_required": 3}`
+
+Case outcomes:
+- `readme_provider_checkpoint_refresh`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `provider_content_comment_single_file`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `failing_test_points_to_source_real`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
