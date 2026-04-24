@@ -482,6 +482,49 @@ Case outcomes:
 - `provider_content_comment_single_file`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
 - `failing_test_points_to_source_real`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
 
+## M6.1 Real Repo Pilot Expansion Baseline (2026-04-24)
+
+- Commit under test: `2ebf804` plus the M6.1 real repo pilot case expansion.
+- Model: `RightCode / gpt-5.4-mini`
+- Eval command source:
+  - `artifacts/eval/rightcode-gpt-5.4-mini-m6.1-expanded-auto.json`
+  - `artifacts/eval/rightcode-gpt-5.4-mini-m6.1-expanded-stop.json`
+  - `artifacts/eval/rightcode-gpt-5.4-mini-m6.1-approval-path-stop-rerun.json`
+- Notes: `M6.1 expanded the reproducible real-repo pilot pack from 3 to 6 cases without changing runtime behavior. auto_approve_edits passed 6/6. The first stop_on_request run showed one duplicate read in approval_path_test_first, but a focused rerun of that case returned duplicate reads to 0.0 and still stopped cleanly at edit_approval_required, so this is recorded as observe evidence rather than a stable M6.2 hardening trigger.`
+
+### auto_approve_edits
+
+- Passed: `6/6`
+- Average steps: `4.67`
+- Average read_file calls: `1.5`
+- Average duplicate reads: `0.0`
+- Failure reasons: `{}`
+
+Case outcomes:
+- `readme_provider_checkpoint_refresh`: `PASS`, stop=`finished`, failure=`-`
+- `provider_content_comment_single_file`: `PASS`, stop=`finished`, failure=`-`
+- `failing_test_points_to_source_real`: `PASS`, stop=`finished`, failure=`-`
+- `completion_contract_source_edit`: `PASS`, stop=`finished`, failure=`-`
+- `read_focus_multi_context_single_edit`: `PASS`, stop=`finished`, failure=`-`
+- `approval_path_test_first`: `PASS`, stop=`finished`, failure=`-`
+
+### stop_on_request
+
+- Passed: `0/6`
+- Average steps: `3.0`
+- Average read_file calls: `1.67`
+- Average duplicate reads: `0.17`
+- Failure reasons: `{"edit_approval_required": 6}`
+- Focused rerun for `approval_path_test_first`: `0/1`, stop=`approval_required`, failure=`edit_approval_required`, average duplicate reads `0.0`
+
+Case outcomes:
+- `readme_provider_checkpoint_refresh`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `provider_content_comment_single_file`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `failing_test_points_to_source_real`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `completion_contract_source_edit`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `read_focus_multi_context_single_edit`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `approval_path_test_first`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+
 ## M5.1 Patch Contract Hardening Checkpoint (2026-04-24)
 
 - Commit: `f4e9be2`

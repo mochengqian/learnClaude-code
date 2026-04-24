@@ -61,6 +61,30 @@ PLAN_INVALID_OUTPUT_BLOCK_BROKEN = (
     '    if "plan output invalid" in message:\n'
     '        return "invalid_model_output"\n'
 )
+COMPLETION_CONTRACT_COMMENT_PLACEHOLDER = (
+    "    # TODO: explain why the env parsing branch is still covered by tests.\n"
+    '    timeout_raw = os.getenv("REPO_TASK_MODEL_TIMEOUT_SECONDS", "60").strip()\n'
+)
+COMPLETION_CONTRACT_COMMENT_EXPECTED = (
+    "    # Keep env parsing covered because provider retries depend on these knobs.\n"
+    '    timeout_raw = os.getenv("REPO_TASK_MODEL_TIMEOUT_SECONDS", "60").strip()\n'
+)
+CONTEXT_BUNDLE_ANCHOR_COMMENT_PLACEHOLDER = (
+    "# TODO: explain why failed test output keeps both ends.\n"
+    "def _truncate_test_output(value: str, limit: int) -> str:\n"
+)
+CONTEXT_BUNDLE_ANCHOR_COMMENT_EXPECTED = (
+    "# Preserve the failure header and assertion tail so repair prompts stay actionable.\n"
+    "def _truncate_test_output(value: str, limit: int) -> str:\n"
+)
+SHELL_APPROVAL_TAXONOMY_BLOCK_FIXED = (
+    '    if "shell command requires explicit approval" in message:\n'
+    '        return "shell_approval_required"\n'
+)
+SHELL_APPROVAL_TAXONOMY_BLOCK_BROKEN = (
+    '    if "shell command requires explicit approval" in message:\n'
+    '        return "approval_required"\n'
+)
 
 
 def _noop_setup(_: Path) -> None:
@@ -111,6 +135,43 @@ def builtin_real_repo_pilot_cases() -> List[RealRepoPilotCase]:
                 "before finishing."
             ),
             setup=_setup_plan_invalid_output_regression,
+        ),
+        RealRepoPilotCase(
+            case_id="completion_contract_source_edit",
+            display_name="Completion Contract Source Edit",
+            task_input=(
+                "Edit repo_task_runtime/model_client.py only. Replace the TODO "
+                "comment above REPO_TASK_MODEL_TIMEOUT_SECONDS parsing with one "
+                "short note that env parsing stays covered because provider retries "
+                "depend on those knobs. Do not change behavior. Run the full unittest "
+                "suite before finishing."
+            ),
+            setup=_setup_completion_contract_source_edit,
+        ),
+        RealRepoPilotCase(
+            case_id="read_focus_multi_context_single_edit",
+            display_name="Read Focus Multi Context Single Edit",
+            task_input=(
+                "Inspect repo_task_runtime/agent.py and "
+                "repo_task_runtime/context_bundle.py for context, then edit only "
+                "repo_task_runtime/context_bundle.py. Replace the TODO comment above "
+                "_truncate_test_output with one short note explaining that failed test "
+                "output preserves the failure header and assertion tail. Run the full "
+                "unittest suite before finishing."
+            ),
+            setup=_setup_read_focus_multi_context_single_edit,
+        ),
+        RealRepoPilotCase(
+            case_id="approval_path_test_first",
+            display_name="Approval Path Test First",
+            task_input=(
+                "Start with run_test using the full unittest suite, not shell. Fix the "
+                "failing shell approval taxonomy regression by inspecting "
+                "tests/test_eval_pack.py and repo_task_runtime/eval_metrics.py. Edit "
+                "only repo_task_runtime/eval_metrics.py, and run the full unittest "
+                "suite before finishing."
+            ),
+            setup=_setup_shell_approval_taxonomy_regression,
         ),
     ]
 
@@ -464,6 +525,30 @@ def _setup_plan_invalid_output_regression(repo_path: Path) -> None:
         repo_path / "repo_task_runtime" / "eval_metrics.py",
         PLAN_INVALID_OUTPUT_BLOCK_FIXED,
         PLAN_INVALID_OUTPUT_BLOCK_BROKEN,
+    )
+
+
+def _setup_completion_contract_source_edit(repo_path: Path) -> None:
+    _replace_once(
+        repo_path / "repo_task_runtime" / "model_client.py",
+        '    timeout_raw = os.getenv("REPO_TASK_MODEL_TIMEOUT_SECONDS", "60").strip()\n',
+        COMPLETION_CONTRACT_COMMENT_PLACEHOLDER,
+    )
+
+
+def _setup_read_focus_multi_context_single_edit(repo_path: Path) -> None:
+    _replace_once(
+        repo_path / "repo_task_runtime" / "context_bundle.py",
+        "def _truncate_test_output(value: str, limit: int) -> str:\n",
+        CONTEXT_BUNDLE_ANCHOR_COMMENT_PLACEHOLDER,
+    )
+
+
+def _setup_shell_approval_taxonomy_regression(repo_path: Path) -> None:
+    _replace_once(
+        repo_path / "repo_task_runtime" / "eval_metrics.py",
+        SHELL_APPROVAL_TAXONOMY_BLOCK_FIXED,
+        SHELL_APPROVAL_TAXONOMY_BLOCK_BROKEN,
     )
 
 

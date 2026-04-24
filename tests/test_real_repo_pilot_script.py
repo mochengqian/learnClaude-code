@@ -49,6 +49,12 @@ class RuleBasedRealRepoPilotModelClient:
             payload = _provider_comment_payload(next_step)
         elif case_id == "failing_test_points_to_source_real":
             payload = _plan_invalid_output_payload(next_step)
+        elif case_id == "completion_contract_source_edit":
+            payload = _completion_contract_payload(next_step)
+        elif case_id == "read_focus_multi_context_single_edit":
+            payload = _read_focus_multi_context_payload(next_step)
+        elif case_id == "approval_path_test_first":
+            payload = _approval_path_test_first_payload(next_step)
         else:
             raise AssertionError("Unexpected real repo pilot case.")
         return _response(payload)
@@ -75,8 +81,8 @@ class RealRepoPilotScriptTest(unittest.TestCase):
         self.assertEqual("", stderr.getvalue())
         payload = json.loads(stdout.getvalue())
         self.assertEqual("real_repo_pilot", payload["suite"])
-        self.assertEqual(3, payload["passed_cases"])
-        self.assertEqual(3, payload["total_cases"])
+        self.assertEqual(6, payload["passed_cases"])
+        self.assertEqual(6, payload["total_cases"])
         self.assertEqual({}, payload["failure_reason_counts"])
         self.assertEqual(0.0, payload["average_duplicate_reads"])
         self.assertEqual(
@@ -84,6 +90,9 @@ class RealRepoPilotScriptTest(unittest.TestCase):
                 "readme_provider_checkpoint_refresh",
                 "provider_content_comment_single_file",
                 "failing_test_points_to_source_real",
+                "completion_contract_source_edit",
+                "read_focus_multi_context_single_edit",
+                "approval_path_test_first",
             },
             {case["case_id"] for case in payload["cases"]},
         )
@@ -103,6 +112,9 @@ class RealRepoPilotScriptTest(unittest.TestCase):
         self.assertIn("readme_provider_checkpoint_refresh", output)
         self.assertIn("provider_content_comment_single_file", output)
         self.assertIn("failing_test_points_to_source_real", output)
+        self.assertIn("completion_contract_source_edit", output)
+        self.assertIn("read_focus_multi_context_single_edit", output)
+        self.assertIn("approval_path_test_first", output)
 
 
 def _should_skip_inside_real_repo_pilot_copy() -> bool:
@@ -117,6 +129,12 @@ def _detect_case_id(user_prompt: str) -> str:
         return "provider_content_comment_single_file"
     if "plan_invalid_output taxonomy regression" in user_prompt:
         return "failing_test_points_to_source_real"
+    if "REPO_TASK_MODEL_TIMEOUT_SECONDS parsing" in user_prompt:
+        return "completion_contract_source_edit"
+    if "_truncate_test_output" in user_prompt:
+        return "read_focus_multi_context_single_edit"
+    if "shell approval taxonomy regression" in user_prompt:
+        return "approval_path_test_first"
     raise AssertionError("Unexpected real repo pilot prompt.")
 
 
@@ -246,6 +264,167 @@ def _plan_invalid_output_payload(step: int):
             },
         }
     return {"summary": "The taxonomy regression has been fixed.", "action": "finish"}
+
+
+def _completion_contract_payload(step: int):
+    if step == 1:
+        return {
+            "summary": "Read model_client.py before the source-only comment edit.",
+            "action": "request_tool",
+            "tool_request": {
+                "tool_type": "read_file",
+                "relative_path": "repo_task_runtime/model_client.py",
+            },
+        }
+    if step == 2:
+        return {
+            "summary": "Patch the provider retry env parsing comment.",
+            "action": "request_tool",
+            "tool_request": {
+                "tool_type": "file_patch",
+                "relative_path": "repo_task_runtime/model_client.py",
+                "expected_old_snippet": (
+                    run_real_repo_pilot.COMPLETION_CONTRACT_COMMENT_PLACEHOLDER
+                ),
+                "new_snippet": (
+                    run_real_repo_pilot.COMPLETION_CONTRACT_COMMENT_EXPECTED
+                ),
+            },
+        }
+    if step == 3:
+        return {
+            "summary": "The source-only comment edit is complete.",
+            "action": "finish",
+        }
+    if step == 4:
+        return {
+            "summary": "Run tests after finish is blocked by the completion contract.",
+            "action": "request_tool",
+            "tool_request": {
+                "tool_type": "run_test",
+                "command": list(run_real_repo_pilot.FULL_TEST_COMMAND),
+            },
+        }
+    return {
+        "summary": "The completion contract source edit is complete.",
+        "action": "finish",
+    }
+
+
+def _read_focus_multi_context_payload(step: int):
+    if step == 1:
+        return {
+            "summary": "Read agent.py for surrounding runtime context.",
+            "action": "request_tool",
+            "tool_request": {
+                "tool_type": "read_file",
+                "relative_path": "repo_task_runtime/agent.py",
+            },
+        }
+    if step == 2:
+        return {
+            "summary": "Read context_bundle.py as the intended edit target.",
+            "action": "request_tool",
+            "tool_request": {
+                "tool_type": "read_file",
+                "relative_path": "repo_task_runtime/context_bundle.py",
+            },
+        }
+    if step == 3:
+        return {
+            "summary": "Patch only context_bundle.py after multi-file context.",
+            "action": "request_tool",
+            "tool_request": {
+                "tool_type": "file_patch",
+                "relative_path": "repo_task_runtime/context_bundle.py",
+                "expected_old_snippet": (
+                    run_real_repo_pilot.CONTEXT_BUNDLE_ANCHOR_COMMENT_PLACEHOLDER
+                ),
+                "new_snippet": (
+                    run_real_repo_pilot.CONTEXT_BUNDLE_ANCHOR_COMMENT_EXPECTED
+                ),
+            },
+        }
+    if step == 4:
+        return {
+            "summary": "Run tests after the single-target context bundle edit.",
+            "action": "request_tool",
+            "tool_request": {
+                "tool_type": "run_test",
+                "command": list(run_real_repo_pilot.FULL_TEST_COMMAND),
+            },
+        }
+    return {
+        "summary": "The multi-context single-edit task is complete.",
+        "action": "finish",
+    }
+
+
+def _approval_path_test_first_payload(step: int):
+    if step == 1:
+        return {
+            "summary": "Try to run the unittest suite through shell.",
+            "action": "request_tool",
+            "tool_request": {
+                "tool_type": "shell",
+                "command": list(run_real_repo_pilot.FULL_TEST_COMMAND),
+            },
+        }
+    if step == 2:
+        return {
+            "summary": "Use run_test after shell is rejected for a known test command.",
+            "action": "request_tool",
+            "tool_request": {
+                "tool_type": "run_test",
+                "command": list(run_real_repo_pilot.FULL_TEST_COMMAND),
+            },
+        }
+    if step == 3:
+        return {
+            "summary": "Read the eval pack test that covers approval taxonomy.",
+            "action": "request_tool",
+            "tool_request": {
+                "tool_type": "read_file",
+                "relative_path": "tests/test_eval_pack.py",
+            },
+        }
+    if step == 4:
+        return {
+            "summary": "Read eval_metrics.py before fixing shell approval taxonomy.",
+            "action": "request_tool",
+            "tool_request": {
+                "tool_type": "read_file",
+                "relative_path": "repo_task_runtime/eval_metrics.py",
+            },
+        }
+    if step == 5:
+        return {
+            "summary": "Patch shell approval taxonomy back to the specific reason.",
+            "action": "request_tool",
+            "tool_request": {
+                "tool_type": "file_patch",
+                "relative_path": "repo_task_runtime/eval_metrics.py",
+                "expected_old_snippet": (
+                    run_real_repo_pilot.SHELL_APPROVAL_TAXONOMY_BLOCK_BROKEN
+                ),
+                "new_snippet": (
+                    run_real_repo_pilot.SHELL_APPROVAL_TAXONOMY_BLOCK_FIXED
+                ),
+            },
+        }
+    if step == 6:
+        return {
+            "summary": "Run the full unittest suite after the taxonomy fix.",
+            "action": "request_tool",
+            "tool_request": {
+                "tool_type": "run_test",
+                "command": list(run_real_repo_pilot.FULL_TEST_COMMAND),
+            },
+        }
+    return {
+        "summary": "The approval path taxonomy regression has been fixed.",
+        "action": "finish",
+    }
 
 
 if __name__ == "__main__":
