@@ -481,3 +481,42 @@ Case outcomes:
 - `readme_provider_checkpoint_refresh`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
 - `provider_content_comment_single_file`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
 - `failing_test_points_to_source_real`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+
+## M5.1 Patch Contract Hardening Checkpoint (2026-04-24)
+
+- Commit: `f4e9be2`
+- Model: `RightCode / gpt-5.4-mini`
+- Eval command source:
+  - `python3 scripts/run_real_repo_pilot.py`
+  - `python3 scripts/run_real_repo_pilot.py --approval-mode stop_on_request`
+- Notes: `M5.1 hardened ambiguous expected_old_snippet handling before approval and fed a task-aware, line-numbered recent read anchor into bounded patch repair. The previous real-repo README bad_patch_snippet miss recovered without adding tools, directory browsing, RAG, or UI surface. Duplicate reads stayed pinned at 0.0 in both modes.`
+
+### auto_approve_edits
+
+- Passed: `3/3`
+- Average steps: `4.67`
+- Average read_file calls: `1.33`
+- Average duplicate reads: `0.0`
+- Cases with same-file rereads: `0`
+- Failure reasons: `{}`
+- bad_patch_snippet: `{}`
+
+Case outcomes:
+- `readme_provider_checkpoint_refresh`: `PASS`, stop=`finished`, failure=`-`
+- `provider_content_comment_single_file`: `PASS`, stop=`finished`, failure=`-`
+- `failing_test_points_to_source_real`: `PASS`, stop=`finished`, failure=`-`
+
+### stop_on_request
+
+- Passed: `0/3`
+- Average steps: `2.67`
+- Average read_file calls: `1.33`
+- Average duplicate reads: `0.0`
+- Cases with same-file rereads: `0`
+- Failure reasons: `{"edit_approval_required": 3}`
+- bad_patch_snippet: `{}`
+
+Case outcomes:
+- `readme_provider_checkpoint_refresh`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `provider_content_comment_single_file`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
+- `failing_test_points_to_source_real`: `FAIL`, stop=`approval_required`, failure=`edit_approval_required`
