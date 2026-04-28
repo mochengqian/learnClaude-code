@@ -899,6 +899,31 @@ M12.x evidence-based hardening gate：
 - 只有同一 case、同一 approval mode、稳定复现、taxonomy 指向控制面时，才允许打开 `agent.py` / `session.py` / `context_bundle.py` / `eval_metrics.py`。
 - 单次 provider/transport 抖动、sandbox DNS、duplicate-read 噪音或模型 patch 过拟合，只归档，不触发 runtime 修改。
 
+## M13 Reviewer Feedback Intake
+
+M13 的目标是验证 reviewer handoff 是否真的可复现，并把反馈入口收窄到 friction log，而不是继续开发 runtime。本轮没有实际外部 reviewer 新反馈，因此采用 owner-simulated dry run：从 `m12-external-review-handoff` 做 fresh checkout，严格按 Owner Review Pack 的本地命令验证。
+
+M13.0 external reviewer dry run：
+
+- checkout 入口：`m12-external-review-handoff`，提交 `bf7cf46`。
+- 按文档安装 API 依赖到 `./.vendor` 后，`python3 scripts/run_demo_smoke.py` 通过。
+- 同一个 fresh checkout 跑 `python3 -m unittest discover -s tests -v`，结果为 `95/95 OK`。
+- 本轮未重跑 RightCode；真实模型基线仍以 `artifacts/eval/BASELINE.md` 和前序 checkpoint 摘要为准。
+
+M13.1 friction log triage：
+
+- dependency setup：`./.vendor` 安装步骤可执行，没有新增阻塞。
+- command order：Owner Review Pack 的 install -> demo smoke -> unittest 顺序可执行。
+- approval semantics：本地 demo smoke 正常表现为先 `approval_required`，审批后 `finished`。
+- baseline reading：未发现 raw JSON、`BASELINE.md`、reviewer-facing summary 之间的新口径冲突。
+- failure taxonomy：本轮没有产生新的 failure bucket 或泛化失败。
+
+M13.2 docs-only fix / evidence gate：
+
+- 只补充本节和 Owner Review Pack 的 M13 证据，不修改 runtime。
+- 没有同一 case、同一 approval mode、稳定复现且 taxonomy 指向控制面的失败，因此不进入 `agent.py` / `session.py` / `context_bundle.py` / `eval_metrics.py` hardening。
+- 继续禁止目录浏览、RAG、MCP、memory、多 agent、worktree、复杂 UI、新工具类型和 benchmark 平台。
+
 ## 测试
 
 除了原有 runtime / API 测试，这一轮新增：

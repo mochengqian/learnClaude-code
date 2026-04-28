@@ -74,6 +74,11 @@ runner.
   target. Handoff is docs-only: reviewers should follow this pack, record
   friction, and only trigger runtime hardening when the same case and approval
   mode reproduce a taxonomy-backed control-plane failure.
+- M13 reviewer feedback intake: an owner-simulated fresh checkout from
+  `m12-external-review-handoff` installed `./.vendor`, completed demo smoke, and
+  ran the full unittest suite at `95/95 OK`. No dependency, command-order,
+  approval-semantics, baseline, or taxonomy friction triggered runtime
+  hardening.
 
 ## M12 Reviewer Handoff
 
@@ -99,6 +104,26 @@ Friction log fields:
 Owner rule: documentation friction can only change README / Owner Review text.
 Runtime hardening requires a stable same-case, same-approval-mode reproduction
 with taxonomy pointing to `agent.py`, `session.py`, `context_bundle.py`, or
+`eval_metrics.py`.
+
+## M13 Feedback Intake
+
+M13 is feedback intake, not feature work. In this local closeout, no external
+human reviewer feedback was available, so the owner pass simulated the reviewer
+path from the handoff tag and recorded only reproducibility evidence.
+
+Observed result:
+
+- Checkout target: `m12-external-review-handoff` at `bf7cf46`.
+- Required local setup: `python3 -m pip install --target ./.vendor fastapi uvicorn pydantic httpx`.
+- Demo command: `python3 scripts/run_demo_smoke.py` passed.
+- Test command: `python3 -m unittest discover -s tests -v` passed at `95/95 OK`.
+- Friction triage: no new dependency setup, command order, approval semantics,
+  baseline reading, or failure taxonomy blocker was found.
+
+Do not open runtime hardening from this M13 pass. The gate remains unchanged:
+the same case and approval mode must reproduce a taxonomy-backed control-plane
+failure before touching `agent.py`, `session.py`, `context_bundle.py`, or
 `eval_metrics.py`.
 
 ## Verification Commands
