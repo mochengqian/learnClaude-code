@@ -62,6 +62,12 @@ runner.
 - M10 dry run: a fresh checkout with `./.vendor` dependencies completed demo
   smoke and the full unittest suite at `95/95 OK`; no evidence triggered runtime
   hardening.
+- M11 external review freeze: a clean checkout from the `m10-review-ready` tag
+  completed demo smoke and `95/95 OK`; RightCode / `gpt-5.4-mini` spot check
+  passed `6/6` in `auto_approve_edits`, stopped `0/6` at
+  `edit_approval_required` in `stop_on_request`, and did not produce a stable
+  control-plane failure. One sandbox DNS failure and one duplicate-read noise
+  observation were recorded without opening runtime hardening.
 
 ## Verification Commands
 

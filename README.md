@@ -842,6 +842,36 @@ M8.3 hardening gate：
 - 本轮 clean clone / rehearsal 没有暴露稳定 runtime 控制面失败，因此不进入 `agent.py` / `session.py` / `context_bundle.py` / `eval_metrics.py` hardening。
 - 后续只有当同一失败在相同 case、相同 approval mode 下可复现，并且 taxonomy 能指向控制面缺口，才允许打开最小修复。
 
+## M11 External Review Rehearsal Freeze
+
+M11 的目标是证明外部 reviewer 可以从稳定 tag 复现、理解和质询项目，而不是继续开发功能。runtime 在这一阶段保持冻结；只有稳定、可复现、同 case / 同 approval mode、且能指向控制面的失败才允许进入 hardening。
+
+M11.0 tag-based clean run：
+
+- 从 `m10-review-ready` tag 做 clean checkout，锚点为 `9d73c43`。
+- 按 Owner Review Pack 安装 API 依赖到 `./.vendor` 后，`python3 scripts/run_demo_smoke.py` 通过。
+- 同一个 clean checkout 跑 `python3 -m unittest discover -s tests -v`，结果为 `95/95 OK`。
+
+M11.1 interview rehearsal：
+
+- 30 秒口径：这是 Repo-Task Agent Runtime / Workbench，不是聊天壳、RAG、MCP 平台或多 agent team；价值在受控地执行真实 repo 局部任务。
+- 3 分钟口径：跑 `python3 scripts/run_demo_smoke.py`，按 task input、plan/todo、restricted tool、approval、diff/test、timeline 顺序解释闭环。
+- 8 分钟口径：补充 real repo pilot 的 `6` 个 case、RightCode spot check、approval gate、duplicate-read 指标和 failure taxonomy；明确 pilot 是证据包，不是 benchmark 平台。
+
+M11.2 RightCode spot check：
+
+- 模型：RightCode / `gpt-5.4-mini`。
+- `auto_approve_edits`：`6/6`，平均步数 `5.17`，平均 read_file `1.67`，平均 duplicate reads `0.17`，failure taxonomy `{}`。
+- `stop_on_request`：`0/6`，全部预期停在 `edit_approval_required`，平均 duplicate reads `0.0`，failure taxonomy `{"edit_approval_required": 6}`。
+- `failing_test_points_to_source_real` focused rerun 曾在沙箱内出现一次 DNS 型 `Model request failed: [Errno 8] nodename nor servname provided, or not known`，沙箱外同 case 复跑恢复为 `1/1 PASS`。
+- 同一个 focused rerun 仍有 duplicate-read 噪音，但没有产生 patch/test/timeline 失败；M11 将它记录为观察信号，不作为立刻修改 runtime 的理由。
+
+M11.3 evidence gate：
+
+- 没有发现稳定可复现的控制面失败。
+- 不进入 `agent.py` / `session.py` / `context_bundle.py` / `eval_metrics.py` hardening。
+- 不新增目录浏览、RAG、MCP、memory、多 agent、worktree、复杂 UI、新工具类型或 benchmark 平台。
+
 ## 测试
 
 除了原有 runtime / API 测试，这一轮新增：
