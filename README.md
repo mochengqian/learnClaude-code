@@ -704,6 +704,74 @@ M6 明确不做：
 - 不做复杂 UI、统计面板或 benchmark 平台。
 - 不为了 case 数量牺牲任务颗粒度和可解释性。
 
+## M7.0 Demo/Interview Delivery Pack Closeout
+
+M7 的目标不是新增 runtime 能力，而是把当前 repo-task agent 的价值压成一条可讲、可跑、可解释的演示路径。底层逻辑是用现有 demo smoke 和 real repo pilot 证明核心闭环，而不是把项目扩成通用 agent 平台。
+
+M7 进入锚点：
+
+- 当前远端 docs closeout：`8ffb58c`。
+- 当前真实 repo pilot：`6` 个 case。
+- 当前真实模型基线：RightCode / `gpt-5.4-mini` 下 `auto_approve_edits = 6/6`。
+- 当前 stop_on_request 口径：预期停在 `edit_approval_required`，用于展示 approval gate，不按失败处理。
+
+M7 唯一推荐演示路径：
+
+1. 输入一个真实 repo 局部任务，任务必须有明确目标文件和测试命令。
+2. 进入 plan mode，生成 plan 和 todo。
+3. approve plan，锁定任务边界。
+4. agent 使用 restricted tools 获取上下文，优先 `read_file` / `run_test`，不把 shell 扩成通用命令平台。
+5. agent 提交 `file_patch` 或 `write_file` 时进入 approval gate。
+6. approve edit 后生成 diff，并绑定当前 repo state。
+7. 运行本地测试，`finish` 必须绑定最近一次成功测试。
+8. 打开 event timeline，解释 plan/todo、tool、approval、diff、test 和 stop reason。
+9. 用 eval summary 复盘通过率、平均步数、duplicate reads 和 failure taxonomy。
+
+M7 本地演示命令：
+
+```bash
+python3 scripts/run_demo_smoke.py
+python3 scripts/run_real_repo_pilot.py
+python3 scripts/run_real_repo_pilot.py --approval-mode stop_on_request
+```
+
+M7 验收标准：
+
+- `python3 scripts/run_demo_smoke.py` 必须通过，证明 demo repo 的 task input -> plan/todo -> restricted tool -> approval -> diff/test -> timeline 闭环可跑。
+- `python3 -m unittest discover -s tests -v` 必须通过，证明 delivery pack 没有破坏 runtime、API、eval pack、web console 和 real repo pilot 入口。
+- README 必须能解释当前 demo 路径、成功指标、approval 停机口径和失败复盘口径，不依赖临场口头补洞。
+- 本轮不刷新 RightCode 基线；除非后续要更新真实模型数据，否则继续沿用 M6.1 `6/6` 摘要和本地忽略的 raw JSON 策略。
+
+M7 演示时长口径：
+
+- 30 秒：说明项目不是聊天壳、RAG 或通用 agent 平台，而是面向真实 repo 局部任务的受控 runtime。
+- 3 分钟：跑 `run_demo_smoke.py`，沿着 plan/todo、tool、approval、diff/test、timeline 解释核心闭环。
+- 8 分钟：再讲 real repo pilot 的 `6` 个 case、RightCode `6/6`、duplicate reads `0.0`、failure taxonomy 和为什么不扩工具面。
+
+M7 失败时如何解释：
+
+- `edit_approval_required`：在 `stop_on_request` 下是预期停机，用来展示 edit approval gate，不按 runtime 失败处理。
+- `bad_patch_snippet` / `bad_patch_target`：说明 patch contract 拦住了不可信 diff，应该先看 repair context；只有稳定复现才进入 evidence-based hardening。
+- `plan_invalid_output` / `invalid_model_output`：说明模型输出层有可分类失败，不应包装成通用 runner failed；先看 taxonomy，再决定是否需要最小 retry。
+- `model_request_failed`：优先归类为 provider/transport 稳定性问题，不把它误判成 agent loop 或工具面缺陷。
+- duplicate read 噪音：只在复跑仍稳定出现时处理；单次噪音不作为新增 runtime 功能的理由。
+
+M7 面试讲述抓手：
+
+- 架构边界：Python control plane 管 agent loop、session、approval、diff、test、timeline；Web 控制台只做薄展示。
+- 核心取舍：只做单 agent、局部 repo task、受限工具、可解释 timeline，不做聊天壳或通用平台。
+- 稳定性证据：M6.1 real repo pilot `6/6`，duplicate reads 已压到 `0.0`，approval stop reason 已结构化。
+- 可回归资产：demo smoke 验闭环，real repo pilot 验真实 repo 局部任务，`BASELINE.md` 只提交摘要不提交 raw JSON。
+
+M7 明确不做：
+
+- 不新增工具类型。
+- 不做目录浏览、搜索工具、通用检索或 RAG。
+- 不接 MCP / plugin / memory。
+- 不做多 agent、子代理编排或 worktree 管理。
+- 不做复杂 UI、统计面板或 benchmark 平台。
+- 不把演示包包装成产品化交付平台。
+
 ## 测试
 
 除了原有 runtime / API 测试，这一轮新增：
