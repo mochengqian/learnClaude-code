@@ -12,13 +12,13 @@ Reviewer quick path: [Owner Review Pack](docs/OWNER_REVIEW.md).
 - 多智能体 team system
 - 花哨前端
 
-## 当前阶段
+## 当前交付状态
 
-这一轮只做后端核心闭环：
+当前项目已进入 delivery / review-ready 状态，交付范围仍然只围绕后端核心闭环：
 
 `task input -> plan mode -> todo lifecycle -> restricted tools -> approval -> diff -> local test -> event timeline`
 
-这一轮明确不做：
+当前交付边界明确不做：
 
 - 子代理 / worktree 隔离
 - MCP / plugin / skill 系统

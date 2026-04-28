@@ -59,6 +59,9 @@ runner.
 - M9 final rehearsal: RightCode / `gpt-5.4-mini` real repo pilot passed `6/6`
   in `auto_approve_edits`; `stop_on_request` stopped `0/6` at
   `edit_approval_required` with average duplicate reads `0.0`, as expected.
+- M10 dry run: a fresh checkout with `./.vendor` dependencies completed demo
+  smoke and the full unittest suite at `95/95 OK`; no evidence triggered runtime
+  hardening.
 
 ## Verification Commands
 
