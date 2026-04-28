@@ -710,7 +710,7 @@ M7 的目标不是新增 runtime 能力，而是把当前 repo-task agent 的价
 
 M7 进入锚点：
 
-- 当前远端 docs closeout：`8ffb58c`。
+- 当前远端 M7.0 docs closeout：`1e12026`。
 - 当前真实 repo pilot：`6` 个 case。
 - 当前真实模型基线：RightCode / `gpt-5.4-mini` 下 `auto_approve_edits = 6/6`。
 - 当前 stop_on_request 口径：预期停在 `edit_approval_required`，用于展示 approval gate，不按失败处理。
@@ -755,6 +755,23 @@ M7 失败时如何解释：
 - `plan_invalid_output` / `invalid_model_output`：说明模型输出层有可分类失败，不应包装成通用 runner failed；先看 taxonomy，再决定是否需要最小 retry。
 - `model_request_failed`：优先归类为 provider/transport 稳定性问题，不把它误判成 agent loop 或工具面缺陷。
 - duplicate read 噪音：只在复跑仍稳定出现时处理；单次噪音不作为新增 runtime 功能的理由。
+
+M7.1 rehearsal 小结：
+
+- `python3 scripts/run_demo_smoke.py` 已通过，表现为 `approval_required -> finished`、`approval_kind=edit`、`latest_successful_test=true`。
+- RightCode / `gpt-5.4-mini` 全量 real repo pilot 彩排曾出现一次 `5/6`，唯一失败是 `readme_provider_checkpoint_refresh` 的 `invalid_model_output`，`avg_duplicate_reads=0.0`。
+- `stop_on_request` 全量彩排符合 approval gate 口径，`5` 个 case 停在 `edit_approval_required`，同一个 README checkpoint case 曾出现一次 `bad_patch_snippet`，`avg_duplicate_reads=0.0`。
+- 对 `readme_provider_checkpoint_refresh` focused rerun 后，`auto_approve_edits` 回到 `1/1 PASS`，`stop_on_request` 回到预期 `edit_approval_required`。
+- Owner 结论：没有稳定复现的 runtime 缺口，不进入 `agent.py` / `session.py` / `context_bundle.py` / `eval_metrics.py` hardening；避免为单次模型噪音过拟合。
+
+M7.2 面试彩排口径：
+
+- 开场 30 秒：这是 Repo-Task Agent Runtime，不是聊天壳、RAG、MCP 平台或多 agent team；价值在受控地跑真实 repo 局部任务。
+- 演示 3 分钟：先跑 `python3 scripts/run_demo_smoke.py`，按 task input、plan/todo、restricted tool、approval、diff/test、timeline 顺序讲闭环。
+- 深挖 8 分钟：补充 real repo pilot 的 `6` 个 case、RightCode 基线、duplicate reads `0.0`、approval stop reason 和 failure taxonomy。
+- 被问到 `stop_on_request` 的 `0/6` 时，明确说明这是 approval gate 演示模式，不是追求通过率；预期停机原因是 `edit_approval_required`。
+- 被问到 rehearsal 中的 README case 波动时，说明 focused rerun 已恢复，当前判断为非稳定模型/patch 噪音；项目只对可复现失败做 evidence-based hardening。
+- 被问到为什么不加搜索、目录浏览、RAG、memory、多 agent 时，回答是 M7 目标是证明最小闭环和控制面边界，不把演示包扩成通用平台。
 
 M7 面试讲述抓手：
 
