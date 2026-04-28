@@ -249,11 +249,14 @@ python3 -m pip install --target ./.vendor fastapi uvicorn pydantic httpx
 
 这一轮新增了一个固定内置的 `eval pack`，目标不是做 benchmark 平台，而是给 runtime 提供一组稳定、可重复、可量化的回归任务。
 
-当前内置 3 个 case：
+当前内置 6 个 case：
 
 - `slug_join`
 - `clamp_lower_bound`
 - `compact_whitespace`
+- `implementation_only_change`
+- `failing_test_points_to_source`
+- `multi_file_context_single_edit`
 
 每个 case 都会：
 
@@ -340,13 +343,25 @@ python3 scripts/run_eval.py \
 失败原因当前会归并成最小集合：
 
 - `approval_required`
-- `bad_patch`
+- `edit_approval_required`
+- `shell_approval_required`
+- `test_approval_required`
+- `bad_patch_snippet`
 - `directory_path`
 - `edit_without_read`
+- `failed_test_context_missing`
 - `invalid_finish`
 - `invalid_model_output`
 - `missing_relative_path`
 - `missing_repo_file`
+- `model_provider_response_invalid`
+- `model_transport_failed`
+- `no_op_patch`
+- `off_target_edit`
+- `plan_invalid_output`
+- `readme_reread`
+- `same_file_reread`
+- `shell_tool_misuse`
 - `tool_failed`
 - `tool_blocked`
 - `max_steps_reached`
@@ -710,7 +725,7 @@ M7 的目标不是新增 runtime 能力，而是把当前 repo-task agent 的价
 
 M7 进入锚点：
 
-- 当前远端 M7.0 docs closeout：`1e12026`。
+- 当前远端 M7 rehearsal notes：`3839011`。
 - 当前真实 repo pilot：`6` 个 case。
 - 当前真实模型基线：RightCode / `gpt-5.4-mini` 下 `auto_approve_edits = 6/6`。
 - 当前 stop_on_request 口径：预期停在 `edit_approval_required`，用于展示 approval gate，不按失败处理。
@@ -788,6 +803,42 @@ M7 明确不做：
 - 不做多 agent、子代理编排或 worktree 管理。
 - 不做复杂 UI、统计面板或 benchmark 平台。
 - 不把演示包包装成产品化交付平台。
+
+## M8 Release/Review Readiness Closeout
+
+M8 的目标不是新增 agent 能力，而是确认项目从“本机能跑”提升到“fresh checkout 可复现、owner review 可解释、风险边界清楚”。这一阶段继续冻结 runtime，只有稳定、可复现、能指向控制面的失败才允许进入 evidence-based hardening。
+
+M8.0 clean clone / fresh run 结论：
+
+- fresh checkout 在没有 API 依赖时，`python3 -m unittest discover -s tests -v` 可以通过，但 API / web / demo smoke 相关测试会按预期 skip，`python3 scripts/run_demo_smoke.py` 会因为缺少 `fastapi` 停止。
+- 安装 API 依赖到 `./.vendor` 后，fresh checkout 的 `python3 scripts/run_demo_smoke.py` 通过，表现为 `approval_required -> finished`、`approval_kind=edit`、`latest_successful_test=true`。
+- 同一个 fresh checkout 在补齐 `./.vendor` 后，`python3 -m unittest discover -s tests -v` 跑到 `95/95 OK`，不再依赖当前工作树的隐式环境。
+
+fresh checkout 演示前置条件：
+
+```bash
+python3 -m pip install --target ./.vendor fastapi uvicorn pydantic httpx
+python3 scripts/run_demo_smoke.py
+python3 -m unittest discover -s tests -v
+```
+
+M8.1 owner review sweep 结论：
+
+- README 的 eval pack case 数已经同步为 `6`，避免和 `repo_task_runtime/eval_cases.py` 漂移。
+- README 的 failure taxonomy 已同步为当前细粒度分类，避免把 approval、provider、read-focus、patch-contract 失败重新混成粗粒度失败。
+- `artifacts/eval/BASELINE.md` 继续只保留真实模型摘要，不提交 raw JSON，不把 M8 文档收口伪装成新的模型基线。
+
+M8.2 minimal risk register：
+
+- provider / transport 波动：`model_transport_failed` 和 `model_provider_response_invalid` 是 provider 层信号，不能直接归咎于 agent loop 或工具设计。
+- 模型输出不稳定：`plan_invalid_output`、`invalid_model_output`、`bad_patch_snippet` 只在稳定复现时触发控制面 hardening；单次波动先复跑和归档。
+- `stop_on_request` 语义：`0/N` 是 approval gate 演示模式下的预期结果，关键看是否稳定停在 `edit_approval_required`，不是追求通过率。
+- real repo pilot 覆盖边界：当前只覆盖小范围真实 repo 局部任务，不声明支持目录浏览、通用检索、RAG、多 agent 或 worktree 隔离。
+
+M8.3 hardening gate：
+
+- 本轮 clean clone / rehearsal 没有暴露稳定 runtime 控制面失败，因此不进入 `agent.py` / `session.py` / `context_bundle.py` / `eval_metrics.py` hardening。
+- 后续只有当同一失败在相同 case、相同 approval mode 下可复现，并且 taxonomy 能指向控制面缺口，才允许打开最小修复。
 
 ## 测试
 
