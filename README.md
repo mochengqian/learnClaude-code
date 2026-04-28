@@ -872,6 +872,32 @@ M11.3 evidence gate：
 - 不进入 `agent.py` / `session.py` / `context_bundle.py` / `eval_metrics.py` hardening。
 - 不新增目录浏览、RAG、MCP、memory、多 agent、worktree、复杂 UI、新工具类型或 benchmark 平台。
 
+## M12 External Reviewer Handoff
+
+M12 的目标不是继续开发，而是把 `m11-external-review-freeze` 作为唯一稳定入口交给外部 reviewer 复现和质询。Reviewer 应从 README 顶部的 Owner Review Pack 开始，按里面的命令验证本地闭环；本阶段不新增工具、不重跑模型基线、不修改 runtime。
+
+M12.0 reviewer handoff：
+
+- 固定入口：`m11-external-review-freeze` tag，提交 `dc10b11`。
+- 固定阅读路径：README 顶部 Owner Review Pack -> 项目目标 -> 验证命令 -> risk register。
+- 固定演示路径：`python3 scripts/run_demo_smoke.py` 证明 task input、plan/todo、approval、diff/test、timeline 的闭环。
+
+M12.1 friction log：
+
+- 只记录 reviewer 卡点，不直接修 runtime。
+- 记录字段：依赖安装、命令顺序、`stop_on_request` 语义、baseline 解读、failure taxonomy 解读。
+- 初始 owner pass 没发现新的文档阻塞点；真实 reviewer 反馈进入下一轮 docs-only fix。
+
+M12.2 docs-only fix：
+
+- 如果问题是入口不清、命令顺序不清、approval 语义误解或 baseline 口径误解，只改 README / `docs/OWNER_REVIEW.md`。
+- 不把解释问题误判成 agent loop、tooling 或 model runtime 缺口。
+
+M12.x evidence-based hardening gate：
+
+- 只有同一 case、同一 approval mode、稳定复现、taxonomy 指向控制面时，才允许打开 `agent.py` / `session.py` / `context_bundle.py` / `eval_metrics.py`。
+- 单次 provider/transport 抖动、sandbox DNS、duplicate-read 噪音或模型 patch 过拟合，只归档，不触发 runtime 修改。
+
 ## 测试
 
 除了原有 runtime / API 测试，这一轮新增：

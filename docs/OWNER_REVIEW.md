@@ -68,6 +68,37 @@ runner.
   `edit_approval_required` in `stop_on_request`, and did not produce a stable
   control-plane failure. One sandbox DNS failure and one duplicate-read noise
   observation were recorded without opening runtime hardening.
+- M12 external reviewer handoff: the stable reviewer entrypoint is the
+  `m11-external-review-freeze` tag at `dc10b11`. Handoff is docs-only: reviewers
+  should follow this pack, record friction, and only trigger runtime hardening
+  when the same case and approval mode reproduce a taxonomy-backed control-plane
+  failure.
+
+## M12 Reviewer Handoff
+
+Use this path for external review:
+
+1. Check out `m11-external-review-freeze`.
+2. Read this Owner Review Pack before browsing implementation files.
+3. Run the verification commands below.
+4. Treat `stop_on_request` as an approval-gate rehearsal; `0/N` is expected when
+   all cases stop at `edit_approval_required`.
+5. Record friction before proposing fixes.
+
+Friction log fields:
+
+- Dependency setup: missing or unclear `./.vendor` installation step.
+- Command order: unclear sequence between demo smoke, unittest, and real pilot.
+- Approval semantics: confusion between expected approval stop and runtime
+  failure.
+- Baseline reading: confusion between local raw JSON, `BASELINE.md`, and
+  reviewer-facing summaries.
+- Failure taxonomy: unclear reason mapping or over-broad failure bucket.
+
+Owner rule: documentation friction can only change README / Owner Review text.
+Runtime hardening requires a stable same-case, same-approval-mode reproduction
+with taxonomy pointing to `agent.py`, `session.py`, `context_bundle.py`, or
+`eval_metrics.py`.
 
 ## Verification Commands
 
