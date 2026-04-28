@@ -69,16 +69,17 @@ runner.
   control-plane failure. One sandbox DNS failure and one duplicate-read noise
   observation were recorded without opening runtime hardening.
 - M12 external reviewer handoff: the stable reviewer entrypoint is the
-  `m11-external-review-freeze` tag at `dc10b11`. Handoff is docs-only: reviewers
-  should follow this pack, record friction, and only trigger runtime hardening
-  when the same case and approval mode reproduce a taxonomy-backed control-plane
-  failure.
+  `m12-external-review-handoff` tag. The `m11-external-review-freeze` tag at
+  `dc10b11` remains the runtime freeze reference point, not the handoff checkout
+  target. Handoff is docs-only: reviewers should follow this pack, record
+  friction, and only trigger runtime hardening when the same case and approval
+  mode reproduce a taxonomy-backed control-plane failure.
 
 ## M12 Reviewer Handoff
 
 Use this path for external review:
 
-1. Check out `m11-external-review-freeze`.
+1. Check out `m12-external-review-handoff`.
 2. Read this Owner Review Pack before browsing implementation files.
 3. Run the verification commands below.
 4. Treat `stop_on_request` as an approval-gate rehearsal; `0/N` is expected when

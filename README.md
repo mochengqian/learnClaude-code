@@ -874,11 +874,12 @@ M11.3 evidence gate：
 
 ## M12 External Reviewer Handoff
 
-M12 的目标不是继续开发，而是把 `m11-external-review-freeze` 作为唯一稳定入口交给外部 reviewer 复现和质询。Reviewer 应从 README 顶部的 Owner Review Pack 开始，按里面的命令验证本地闭环；本阶段不新增工具、不重跑模型基线、不修改 runtime。
+M12 的目标不是继续开发，而是把 `m12-external-review-handoff` 作为唯一 handoff 入口交给外部 reviewer 复现和质询。`m11-external-review-freeze` 保留为 runtime freeze 参考点，不再作为 reviewer 的实际 checkout 入口。Reviewer 应从 README 顶部的 Owner Review Pack 开始，按里面的命令验证本地闭环；本阶段不新增工具、不重跑模型基线、不修改 runtime。
 
 M12.0 reviewer handoff：
 
-- 固定入口：`m11-external-review-freeze` tag，提交 `dc10b11`。
+- 固定 handoff 入口：`m12-external-review-handoff` tag。
+- runtime freeze 参考点：`m11-external-review-freeze` tag，提交 `dc10b11`。
 - 固定阅读路径：README 顶部 Owner Review Pack -> 项目目标 -> 验证命令 -> risk register。
 - 固定演示路径：`python3 scripts/run_demo_smoke.py` 证明 task input、plan/todo、approval、diff/test、timeline 的闭环。
 
