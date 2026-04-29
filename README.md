@@ -212,7 +212,7 @@ python3 -m unittest discover -s tests -v
 
 这一轮新增了一个很薄的 FastAPI adapter：
 
-- [repo_task_runtime/api.py](/Users/luan/claude-code-main/learnClaude-code/repo_task_runtime/api.py:1)
+- [repo_task_runtime/api.py](repo_task_runtime/api.py)
 
 它只做 HTTP 映射，不承载业务状态机。核心状态仍在 `TaskSession`。
 
@@ -247,6 +247,8 @@ uvicorn repo_task_runtime.api:app --reload
 python3 -m pip install --target ./.vendor fastapi uvicorn pydantic httpx
 ```
 
+重复 dry run 时，如果 `pip` 提示 `Target directory ./.vendor/... already exists`，这是本地依赖目录已存在导致的 harmless warning。需要刷新依赖时可以加 `--upgrade`，不需要因此修改 runtime。
+
 ## Eval Pack
 
 这一轮新增了一个固定内置的 `eval pack`，目标不是做 benchmark 平台，而是给 runtime 提供一组稳定、可重复、可量化的回归任务。
@@ -270,8 +272,8 @@ python3 -m pip install --target ./.vendor fastapi uvicorn pydantic httpx
 
 核心实现：
 
-- [repo_task_runtime/eval_pack.py](/Users/luan/claude-code-main/learnClaude-code/repo_task_runtime/eval_pack.py:1)
-- [scripts/run_eval.py](/Users/luan/claude-code-main/learnClaude-code/scripts/run_eval.py:1)
+- [repo_task_runtime/eval_pack.py](repo_task_runtime/eval_pack.py)
+- [scripts/run_eval.py](scripts/run_eval.py)
 
 先列出内置 case：
 
@@ -313,7 +315,7 @@ python3 scripts/run_eval.py \
 但从仓库治理角度，`artifacts/eval/*.json` 只作为本地运行产物保留，不纳入 git。
 每次 checkpoint 只更新一份可提交的基线摘要：
 
-- [artifacts/eval/BASELINE.md](/Users/luan/claude-code-main/learnClaude-code/artifacts/eval/BASELINE.md:1)
+- [artifacts/eval/BASELINE.md](artifacts/eval/BASELINE.md)
 
 这份摘要只记录稳定字段，例如：
 
@@ -374,7 +376,7 @@ python3 scripts/run_eval.py \
 
 这一轮把 agent 每步拿到的 prompt 上下文，从“临时拼一个 snapshot”收敛成了一个最小 `context bundle`：
 
-- [repo_task_runtime/context_bundle.py](/Users/luan/claude-code-main/learnClaude-code/repo_task_runtime/context_bundle.py:1)
+- [repo_task_runtime/context_bundle.py](repo_task_runtime/context_bundle.py)
 
 边界仍然很克制，只包含：
 
@@ -397,18 +399,18 @@ python3 scripts/run_eval.py \
 
 agent 接入点仍然只有一处：
 
-- [repo_task_runtime/agent.py](/Users/luan/claude-code-main/learnClaude-code/repo_task_runtime/agent.py:68)
+- [repo_task_runtime/agent.py](repo_task_runtime/agent.py)
 
 验证这条线的测试：
 
-- [tests/test_context_bundle.py](/Users/luan/claude-code-main/learnClaude-code/tests/test_context_bundle.py:1)
+- [tests/test_context_bundle.py](tests/test_context_bundle.py)
 
 ## 模型接入
 
 这一轮只接一个最小的 `OpenAI-compatible` 模型入口：
 
-- [repo_task_runtime/model_client.py](/Users/luan/claude-code-main/learnClaude-code/repo_task_runtime/model_client.py:1)
-- [repo_task_runtime/agent.py](/Users/luan/claude-code-main/learnClaude-code/repo_task_runtime/agent.py:1)
+- [repo_task_runtime/model_client.py](repo_task_runtime/model_client.py)
+- [repo_task_runtime/agent.py](repo_task_runtime/agent.py)
 
 边界仍然严格：
 
@@ -465,7 +467,7 @@ export REPO_TASK_MODEL_NAME="gpt-5.4-mini"
 
 仓库内提供了一个可复制的 demo repo 模板：
 
-- [examples/demo_repo_template/README.md](/Users/luan/claude-code-main/learnClaude-code/examples/demo_repo_template/README.md:1)
+- [examples/demo_repo_template/README.md](examples/demo_repo_template/README.md)
 
 它故意带着一个很小但真实的 bug：
 
@@ -540,7 +542,7 @@ python3 -m unittest discover -s tests -v
 
 M3 的目标不是新增产品功能，而是把真实 repo 局部任务的稳定性继续压实。当前只接受控制面和验证面的增强。
 
-M3.0 baseline refresh 使用 RightCode / `gpt-5.4-mini` 在当前远端锚点重新跑两档 approval mode；raw JSON 继续只保留在本地 `artifacts/eval/*.json`，提交态只更新 [artifacts/eval/BASELINE.md](/Users/luan/claude-code-main/learnClaude-code/artifacts/eval/BASELINE.md:1)。
+M3.0 baseline refresh 使用 RightCode / `gpt-5.4-mini` 在当前远端锚点重新跑两档 approval mode；raw JSON 继续只保留在本地 `artifacts/eval/*.json`，提交态只更新 [artifacts/eval/BASELINE.md](artifacts/eval/BASELINE.md)。
 
 M3.1 demo smoke 提供一条本地命令，证明 demo repo、API session flow、agent plan/loop、approval、diff、successful test 和 timeline 能端到端跑通：
 
@@ -568,7 +570,7 @@ M3 closeout 口径：
 - 当前远端 checkpoint：`3e138e7`。
 - 当前实现锚点：`fd93ea9`。
 - 可演示闭环：demo repo -> session/task input -> plan draft/approve -> limited agent loop -> approval -> diff -> successful local test -> timeline。
-- 基线治理：raw JSON 继续只落本地 `artifacts/eval/*.json`，提交态只更新 [artifacts/eval/BASELINE.md](/Users/luan/claude-code-main/learnClaude-code/artifacts/eval/BASELINE.md:1)。
+- 基线治理：raw JSON 继续只落本地 `artifacts/eval/*.json`，提交态只更新 [artifacts/eval/BASELINE.md](artifacts/eval/BASELINE.md)。
 
 M3 closeout 验证命令：
 
@@ -943,9 +945,18 @@ M14.1 friction log：
 - `stop_on_request` semantics：是否把预期的 `edit_approval_required` 停机误读成失败。
 - baseline reading：是否混淆 raw JSON、本地 ignored artifact、`BASELINE.md` 摘要和 reviewer-facing 口径。
 - taxonomy reading：是否看不懂 failure bucket，或把 provider/transport 抖动误判成 runtime 缺口。
-- 当前状态：暂无真实外部 reviewer 反馈；不能把 M13 的 owner-simulated dry run 写成 M14 pass。
+- 当前状态：真实 reviewer 已在 `m12-external-review-handoff` / `bf7cf46` 跑完必需命令；没有命令失败，也没有控制面 failure taxonomy。
 
-M14.2 docs-only fix：
+M14.2 reviewer friction triage：
+
+- dependency setup：安装成功；重复 dry run 会出现 `Target directory ./.vendor/... already exists` warning。结论是 harmless docs friction，文档已说明可忽略或用 `--upgrade` 刷新依赖。
+- command order：Owner Review Pack 顺序清楚，README 顶部 quick path 清楚。
+- `stop_on_request` semantics：pack 本身无明显歧义，demo smoke 的 `approval_required -> finished`、`approval_kind=edit` 输出有帮助。
+- baseline reading：发现 README 中历史绝对本机路径会让外部 reviewer 误以为 artifact 是机器绑定的；已改成仓库相对链接，并继续强调 raw JSON 只作本地 ignored artifact。
+- taxonomy reading：可读，没有新增 failure bucket。
+- full test runtime：`python3 -m unittest discover -s tests -v` 通过 `95/95`，约 90 秒，`test_real_repo_pilot_script_runs_all_cases_and_reports_json_summary` 附近有可见等待。结论是 reviewer timing friction，不是 runtime 失败。
+
+M14.3 docs-only fix：
 
 - 如果 friction 是入口、命令、approval 语义、baseline 或 taxonomy 解释不清，只改 README / `docs/OWNER_REVIEW.md`。
 - 不把解释问题升级成 agent loop、tooling、model provider 或 runtime hardening。

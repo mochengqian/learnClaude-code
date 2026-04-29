@@ -79,9 +79,11 @@ runner.
   ran the full unittest suite at `95/95 OK`. No dependency, command-order,
   approval-semantics, baseline, or taxonomy friction triggered runtime
   hardening.
-- M14 real external feedback intake: the intake contract is explicit, but no
-  external human reviewer feedback has been recorded yet. Do not treat M13's
-  owner-simulated run as a real external reviewer pass.
+- M14 real external feedback intake: an external reviewer ran the required
+  handoff commands from `m12-external-review-handoff` at `bf7cf46`. Install,
+  demo smoke, and `95/95` unittests passed. The only friction was documentation
+  clarity around repeated `./.vendor` installs, machine-specific README links,
+  local raw JSON artifacts, and the roughly 90-second full test runtime.
 
 ## M12 Reviewer Handoff
 
@@ -164,6 +166,21 @@ Owner triage rule:
 - Without that evidence, do not touch `agent.py`, `session.py`,
   `context_bundle.py`, or `eval_metrics.py`.
 
+Recorded M14 reviewer result:
+
+- Checkout target: `m12-external-review-handoff` at `bf7cf46`.
+- Required local setup passed.
+- Demo smoke passed.
+- Full unittest suite passed at `95/95` in about 90 seconds.
+- Dependency setup friction: repeated dry runs can show existing `./.vendor`
+  target warnings; they are harmless unless the reviewer intentionally wants to
+  refresh dependencies with `--upgrade`.
+- Baseline friction: reviewer-facing links should stay repository-relative, and
+  local ignored raw JSON files should not be confused with committed
+  `artifacts/eval/BASELINE.md` summaries.
+- Evidence gate result: no failed command, failed case name, stop reason, or
+  taxonomy-backed control-plane failure was reported.
+
 ## Verification Commands
 
 ```bash
@@ -171,6 +188,15 @@ python3 -m pip install --target ./.vendor fastapi uvicorn pydantic httpx
 python3 scripts/run_demo_smoke.py
 python3 -m unittest discover -s tests -v
 ```
+
+If this is a repeated dry run, `pip` may warn that `./.vendor` target
+directories already exist. That warning is harmless for review. Use
+`python3 -m pip install --upgrade --target ./.vendor fastapi uvicorn pydantic httpx`
+only when intentionally refreshing the local dependency copy.
+
+The full unittest command can take around 90 seconds and may visibly pause
+around the real repo pilot script tests; treat that as expected timing friction,
+not a failure, unless the command exits non-zero.
 
 When a RightCode-compatible local token is configured:
 
