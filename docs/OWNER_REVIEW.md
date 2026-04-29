@@ -79,6 +79,9 @@ runner.
   ran the full unittest suite at `95/95 OK`. No dependency, command-order,
   approval-semantics, baseline, or taxonomy friction triggered runtime
   hardening.
+- M14 real external feedback intake: the intake contract is explicit, but no
+  external human reviewer feedback has been recorded yet. Do not treat M13's
+  owner-simulated run as a real external reviewer pass.
 
 ## M12 Reviewer Handoff
 
@@ -125,6 +128,41 @@ Do not open runtime hardening from this M13 pass. The gate remains unchanged:
 the same case and approval mode must reproduce a taxonomy-backed control-plane
 failure before touching `agent.py`, `session.py`, `context_bundle.py`, or
 `eval_metrics.py`.
+
+## M14 Real External Feedback Intake
+
+M14 is the real external reviewer intake phase. It is not another owner dry run
+and not a feature phase.
+
+External reviewer path:
+
+1. Check out `m12-external-review-handoff`.
+2. Read this Owner Review Pack before browsing implementation files.
+3. Run the local verification commands below.
+4. Optionally run the RightCode real repo pilot only when the project owner has
+   explicitly allowed model usage.
+5. Record friction before proposing fixes.
+
+Friction intake template:
+
+- Dependency setup:
+- Command order:
+- Approval semantics:
+- Baseline reading:
+- Failure taxonomy:
+- Reproduced command:
+- Approval mode:
+- Case name:
+- Observed stop reason or taxonomy:
+
+Owner triage rule:
+
+- Documentation friction can only change README / `docs/OWNER_REVIEW.md`.
+- Provider/transport noise is recorded, not fixed in runtime.
+- Runtime hardening requires the same case and approval mode to reproduce a
+  taxonomy-backed control-plane failure.
+- Without that evidence, do not touch `agent.py`, `session.py`,
+  `context_bundle.py`, or `eval_metrics.py`.
 
 ## Verification Commands
 

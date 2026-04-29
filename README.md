@@ -924,6 +924,37 @@ M13.2 docs-only fix / evidence gate：
 - 没有同一 case、同一 approval mode、稳定复现且 taxonomy 指向控制面的失败，因此不进入 `agent.py` / `session.py` / `context_bundle.py` / `eval_metrics.py` hardening。
 - 继续禁止目录浏览、RAG、MCP、memory、多 agent、worktree、复杂 UI、新工具类型和 benchmark 平台。
 
+## M14 Real External Feedback Intake
+
+M14 的目标是把反馈入口从 owner-simulated dry run 推进到真实外部 reviewer。仓库侧只交付 intake 合约：reviewer 仍从 `m12-external-review-handoff` checkout，按 README 和 Owner Review Pack 验证；反馈只记录 friction；没有稳定控制面失败，不打开 runtime。
+
+M14.0 real reviewer run：
+
+- 执行人必须是真实外部 reviewer；owner 本地复跑不能替代 M14 外部反馈。
+- 固定 checkout 入口仍是 `m12-external-review-handoff`，避免 reviewer 跟随后续 docs-only commit 漂移。
+- 固定阅读路径仍是 README 顶部 Owner Review Pack -> 验证命令 -> risk register。
+- 固定本地验证命令是 `python3 scripts/run_demo_smoke.py` 和 `python3 -m unittest discover -s tests -v`。
+- RightCode / `gpt-5.4-mini` 真实模型复跑是可选 spot check，只有明确授权时才执行。
+
+M14.1 friction log：
+
+- dependency setup：`./.vendor` 安装步骤是否缺失、失败或顺序不清。
+- command order：demo smoke、unittest、real repo pilot 的执行顺序是否误导。
+- `stop_on_request` semantics：是否把预期的 `edit_approval_required` 停机误读成失败。
+- baseline reading：是否混淆 raw JSON、本地 ignored artifact、`BASELINE.md` 摘要和 reviewer-facing 口径。
+- taxonomy reading：是否看不懂 failure bucket，或把 provider/transport 抖动误判成 runtime 缺口。
+- 当前状态：暂无真实外部 reviewer 反馈；不能把 M13 的 owner-simulated dry run 写成 M14 pass。
+
+M14.2 docs-only fix：
+
+- 如果 friction 是入口、命令、approval 语义、baseline 或 taxonomy 解释不清，只改 README / `docs/OWNER_REVIEW.md`。
+- 不把解释问题升级成 agent loop、tooling、model provider 或 runtime hardening。
+
+M14.x evidence-based hardening gate：
+
+- 只有同一 case、同一 approval mode、稳定复现、taxonomy 指向控制面，才允许打开 `agent.py` / `session.py` / `context_bundle.py` / `eval_metrics.py`。
+- 继续禁止目录浏览、RAG、MCP、memory、多 agent、worktree、复杂 UI、新工具类型和 benchmark 平台。
+
 ## 测试
 
 除了原有 runtime / API 测试，这一轮新增：
