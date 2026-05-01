@@ -4,14 +4,6 @@ Reviewer quick path: [Owner Review Pack](docs/OWNER_REVIEW.md).
 
 这个仓库当前只做一件事：用 Python 搭一个面向真实代码仓库局部任务的最小 runtime。
 
-它不是：
-- Claude Code 仿品
-- 通用 AI Agent 平台
-- 聊天壳
-- RAG 系统
-- 多智能体 team system
-- 花哨前端
-
 ## 当前交付状态
 
 当前项目已进入 delivery / review-ready 状态，交付范围仍然只围绕后端核心闭环：
