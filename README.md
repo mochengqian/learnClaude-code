@@ -2,7 +2,7 @@
 
 Reviewer quick path: [Owner Review Pack](docs/OWNER_REVIEW.md).
 
-这个仓库当前只做一件事：用 Python 搭一个面向真实代码仓库局部任务的最小 runtime。
+这个仓库是一个demo项目,用 Python 搭一个面向真实代码仓库局部任务的最小 runtime。
 
 ## 当前交付状态
 
