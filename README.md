@@ -19,7 +19,7 @@ Reviewer quick path: [Owner Review Pack](docs/OWNER_REVIEW.md).
 
 ## 为什么这样切
 
-从 `Claude Code` 参考源码里，这一轮只迁移四个高价值机制，不迁移产品壳：
+从 `Claude Code` 参考源码里，迁移四个高价值机制：
 
 1. `plan mode` 本质上是权限模式，不是“写一份 plan 文档”这么简单。
 2. `todo lifecycle` 是 runtime 状态，不是随手输出的文本列表。
